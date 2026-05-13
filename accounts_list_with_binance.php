@@ -1,0 +1,140 @@
+<?php
+/**
+ * Admin: return all broker accounts (Capital.com + Binance) with a broker_type field.
+ * Used by User Management sub-rows. Capital.com from `accounts`, Binance from `binance_accounts`.
+ * GET: no params
+ * Returns: { "success": true, "accounts": [ { ...row, "broker_type": "Capital.com"|"BINANCE" } ] }
+ */
+
+header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type');
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'message' => 'Method not allowed']);
+    exit;
+}
+
+require_once __DIR__ . '/conn.php';
+
+if (!$conn) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Database connection failed']);
+    exit;
+}
+
+$out = [];
+
+// --- 1) Capital.com accounts from `accounts` ---
+$describe = mysqli_query($conn, 'DESCRIBE accounts');
+if (!$describe) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Table accounts not found']);
+    exit;
+}
+$allowed = ['id', 'uni_id', 'name', 'api_key', 'broker_accountID', 'email', 'password', 'demo', 'enabled', 'created_at', 'balance', 'unrealized_pnl', 'currency_type', 'deposit_amount', 'initial_deposit', 'equity', 'realized_pnl', 'cst', 'x_security_token', 'session_last_used_at', 'deleted_at'];
+$cols = [];
+while ($dr = mysqli_fetch_assoc($describe)) {
+    if (in_array($dr['Field'], $allowed, true)) {
+        $cols[] = $dr['Field'];
+    }
+}
+mysqli_free_result($describe);
+if (!in_array('id', $cols, true) || !in_array('uni_id', $cols, true)) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Table accounts must have id and uni_id']);
+    exit;
+}
+
+$selectList = implode(', ', $cols);
+$sql = "SELECT {$selectList} FROM accounts ORDER BY (deleted_at IS NULL) DESC, email ASC";
+$result = mysqli_query($conn, $sql);
+if (!$result) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Failed to fetch accounts: ' . mysqli_error($conn)]);
+    exit;
+}
+
+while ($row = mysqli_fetch_assoc($result)) {
+    $accountId = (int) $row['id'];
+    $realizedPnl = isset($row['realized_pnl']) ? (float) $row['realized_pnl'] : null;
+    if ($realizedPnl === null) {
+        $realizedPnlSql = "SELECT COALESCE(SUM(pnl), 0) AS total_pnl FROM trades WHERE account_id = $accountId";
+        $realizedPnlResult = mysqli_query($conn, $realizedPnlSql);
+        $realizedPnl = 0.0;
+        if ($realizedPnlResult) {
+            $realizedPnlRow = mysqli_fetch_assoc($realizedPnlResult);
+            $realizedPnl = isset($realizedPnlRow['total_pnl']) ? (float) $realizedPnlRow['total_pnl'] : 0.0;
+            mysqli_free_result($realizedPnlResult);
+        }
+    }
+    $row['demo'] = (int) ($row['demo'] ?? 0);
+    $row['enabled'] = (int) ($row['enabled'] ?? 1);
+    $row['balance'] = isset($row['balance']) ? (float) $row['balance'] : null;
+    $row['realized_pnl'] = $realizedPnl;
+    $row['unrealized_pnl'] = isset($row['unrealized_pnl']) ? (float) $row['unrealized_pnl'] : null;
+    $row['deposit_amount'] = isset($row['deposit_amount']) ? (float) $row['deposit_amount'] : 0.0;
+    $row['initial_deposit'] = isset($row['initial_deposit']) ? (float) $row['initial_deposit'] : ($row['deposit_amount'] ?? null);
+    $row['broker_type'] = 'Capital.com';
+    $out[] = $row;
+}
+mysqli_free_result($result);
+
+// --- 2) Binance accounts from `binance_accounts` (with uni_id); realized from binance_pastpositions, unrealized from binance_positions ---
+$binanceSql = "SELECT api_key, uni_id, name, balance, initial_deposit, currency_type, created_at, deleted_at, demo, enabled FROM binance_accounts WHERE uni_id IS NOT NULL AND uni_id != '' ORDER BY (deleted_at IS NULL) DESC, name ASC";
+$binanceResult = mysqli_query($conn, $binanceSql);
+if ($binanceResult) {
+    while ($row = mysqli_fetch_assoc($binanceResult)) {
+        $apiKey = $conn ? mysqli_real_escape_string($conn, $row['api_key']) : $row['api_key'];
+        $realizedPnl = 0.0;
+        $unrealizedPnl = 0.0;
+        $pastSql = "SELECT COALESCE(SUM(realized_pnl), 0) AS total FROM binance_pastpositions WHERE api_key = '" . $apiKey . "'";
+        $pastRes = mysqli_query($conn, $pastSql);
+        if ($pastRes) {
+            $pastRow = mysqli_fetch_assoc($pastRes);
+            $realizedPnl = ($pastRow && isset($pastRow['total'])) ? (float) $pastRow['total'] : 0.0;
+            mysqli_free_result($pastRes);
+        }
+        $posSql = "SELECT COALESCE(SUM(unrealized_profit), 0) AS total FROM binance_positions WHERE api_key = '" . $apiKey . "'";
+        $posRes = mysqli_query($conn, $posSql);
+        if ($posRes) {
+            $posRow = mysqli_fetch_assoc($posRes);
+            $unrealizedPnl = ($posRow && isset($posRow['total'])) ? (float) $posRow['total'] : 0.0;
+            mysqli_free_result($posRes);
+        }
+        $out[] = [
+            'id' => 'binance_' . $row['api_key'],
+            'uni_id' => $row['uni_id'],
+            'name' => $row['name'] ?? 'Binance',
+            'email' => '',
+            'api_key' => $row['api_key'],
+            'password' => '',
+            'demo' => (int) ($row['demo'] ?? 0),
+            'enabled' => (int) ($row['enabled'] ?? 1),
+            'created_at' => $row['created_at'] ?? '',
+            'balance' => isset($row['balance']) ? (float) $row['balance'] : null,
+            'realized_pnl' => $realizedPnl,
+            'unrealized_pnl' => $unrealizedPnl,
+            'currency_type' => $row['currency_type'] ?? 'USDT',
+            'deposit_amount' => isset($row['initial_deposit']) ? (float) $row['initial_deposit'] : 0,
+            'initial_deposit' => isset($row['initial_deposit']) ? (float) $row['initial_deposit'] : 0,
+            'deleted_at' => $row['deleted_at'] ?? null,
+            'broker_type' => 'BINANCE',
+        ];
+    }
+    mysqli_free_result($binanceResult);
+}
+
+mysqli_close($conn);
+
+echo json_encode([
+    'success' => true,
+    'accounts' => $out,
+]);

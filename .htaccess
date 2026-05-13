@@ -1,0 +1,21 @@
+# Disable directory listing for root and all subdirectories
+Options -Indexes
+
+# Block direct access to .env / dotfiles
+<FilesMatch "^\.env">
+    Require all denied
+</FilesMatch>
+
+# Rewrite /apk to index.php?route=apk (hides apk.php from URL)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /sinegu-api/
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^apk$ index.php?route=apk [L,QSA]
+
+    # /v1/user-analytics/<broker>             -> v1/user-analytics/<broker>/index.php
+    # /v1/user-analytics/<broker>/<endpoint>  -> v1/user-analytics/<broker>/index.php?endpoint=<endpoint>
+    RewriteRule ^v1/user-analytics/(capital|binance|ig\.com)/?$            v1/user-analytics/$1/index.php [L,QSA]
+    RewriteRule ^v1/user-analytics/(capital|binance|ig\.com)/([a-z_]+)/?$  v1/user-analytics/$1/index.php?endpoint=$2 [L,QSA]
+</IfModule>

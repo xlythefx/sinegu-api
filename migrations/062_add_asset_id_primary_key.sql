@@ -1,0 +1,5 @@
+ALTER TABLE assets
+  DROP PRIMARY KEY,
+  ADD COLUMN asset_id INT UNSIGNED NOT NULL AUTO_INCREMENT FIRST,
+  ADD PRIMARY KEY (asset_id),
+  ADD INDEX idx_ticker (ticker);

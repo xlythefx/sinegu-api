@@ -1,0 +1,53 @@
+# ============================================
+# Secrets / environment
+# ============================================
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
+
+# Coinsbuy token cache
+coinsbuy/.token_cache
+
+# ============================================
+# Composer / dependencies
+# ============================================
+/vendor/
+composer.phar
+
+# ============================================
+# Logs
+# ============================================
+*.log
+log/
+logs/
+cron_overdue.log
+cron_proof.log
+cron_reminders.log
+
+# ============================================
+# Uploads / runtime data — contains user PII (bank proofs, profile images, posts)
+# ============================================
+uploads/*
+!uploads/.gitkeep
+*.bak
+*.sql.gz
+
+# ============================================
+# OS / editor
+# ============================================
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ============================================
+# PHP / misc
+# ============================================
+*.cache
+.phpunit.result.cache

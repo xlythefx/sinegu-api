@@ -1,0 +1,44 @@
+# API Paths Supported for Logging (api_logs table)
+# Updated: 2025-02-22
+#
+# Format: path | description | action (login|create|update|delete|fetch)
+# ---------------------------------------------------------------
+
+# Auth
+users/login                     | User login                    | login
+users/register                  | User registration             | create
+
+# Admin - User Management
+addUser.php                     | Admin create user             | create
+users_create.php                | Admin create user (alt)       | create
+
+# Admin - Database
+admin/POST/download_database_backup.php | Download database backup | fetch
+
+# Admin - Assets (Trading Assets)
+assets-controller/assets_create.php  | Create asset               | create
+assets-controller/assets_update.php  | Edit/update asset          | update
+assets-controller/assets_delete.php  | Delete asset               | delete
+
+# Flask (bot/Capital.com sync)
+flask/delete_account            | Bot delete account            | delete
+flask/disable_account           | Disable/enable account        | update
+flask/insert_trade              | Insert trade                  | create
+flask/insert_position           | Insert position               | create
+flask/update_account_balance    | Update account balance        | update
+flask/fetch_accounts            | Fetch all accounts            | fetch
+
+# Accounts
+accounts_delete                 | Disconnect account            | delete
+
+# Community Posts & Comments
+community/create_post           | User (name) created a post      | create
+community/set_post_status       | Admin approved/rejected post    | update
+community/update_comment        | Update comment                  | update
+community/delete_comment        | Delete comment                  | delete
+community/delete_post           | Delete post                     | delete
+community/admin_delete_post     | Admin deleted post id = X       | delete
+
+# Manual Trade Order
+# NOTE: Send manual trade order is handled by Flask (Python), not sinegu-api.
+# The dashboard calls Flask directly. Add logging in the Flask app if needed.

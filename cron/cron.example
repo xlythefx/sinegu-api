@@ -1,0 +1,4 @@
+# Add this line to crontab (crontab -e) to run invoice generation at 12:01 AM on the 1st of every month (USA Eastern).
+# Replace /usr/bin/php and /path/to/sinegu-api with your server paths.
+
+1 0 1 * * TZ=America/New_York /usr/bin/php /path/to/sinegu-api/generate_invoices.php
