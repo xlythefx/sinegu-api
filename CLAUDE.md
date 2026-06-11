@@ -12,6 +12,25 @@ Always `cd` out of `c:\wamp64\www\sinegu-api` before navigating to sibling proje
 | Capital.com Flask bot | `C:\Users\Xlythe\SineguVariants - Branches\CapitalFlask` |
 | Binance Flask bot | `C:\Users\Xlythe\binance-flask` |
 | IG.com Flask bot | `C:\Users\Xlythe\SineguVariants - Branches\ig-flask` |
+| Deployment tool (paramiko migrations) | `C:\wamp64\www\deployment` |
+
+## Deployment / Remote Migrations
+
+Reusable paramiko-based migration runner at `C:\wamp64\www\deployment` (standalone, never committed — `targets.json` holds VPS credentials). Applies pending `NNN_*.sql` migrations on remote Windows/WAMP VPSes over SSH instead of pasting SQL by hand. Switching env is just the target name:
+
+```bash
+cd C:\wamp64\www\deployment
+python deploy.py ping    <target>            # check SSH auth + remote PHP
+python deploy.py status  <target> <project>  # read-only applied vs pending
+python deploy.py migrate <target> <project>  # sync .sql + runner, run pending migrations
+```
+
+| Target | Host | Project → remote path |
+|---|---|---|
+| `staging` | 156.67.30.81 | `andrea-orcelinvest` → `C:\wamp64\www\andrea-orcelinvest\api` |
+| `production` | 167.86.109.159 | `sinegualerts` → `C:\wamp64\www\sinegualerts` |
+
+New migrations are authored locally in `deployment\migrations\<project>\`. Reuses the same `migrate.php` runner pattern as `sinegu-api/migrations/`.
 
 ## Running the Flask Bots
 

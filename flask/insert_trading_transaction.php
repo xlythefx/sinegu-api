@@ -20,6 +20,11 @@
  * Returns JSON: {"success": true, "message": "Transaction inserted", "transaction_id": 123}
  */
 
+// Never leak HTML error pages into the JSON body (PHP 8 mysqli throws on SQL errors).
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+ob_start();
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
@@ -133,9 +138,19 @@ $fields_str = implode(', ', $fields);
 $values_str = implode(', ', $values);
 
 $sql = "INSERT INTO capital_trades_transactions ({$fields_str}, created_at) VALUES ({$values_str}, NOW())";
-$result = mysqli_query($conn, $sql);
+
+try {
+    $result = mysqli_query($conn, $sql);
+} catch (\mysqli_sql_exception $e) {
+    ob_clean();
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    mysqli_close($conn);
+    exit;
+}
 
 if (!$result) {
+    ob_clean();
     http_response_code(500);
     echo json_encode([
         'success' => false,
@@ -146,6 +161,7 @@ if (!$result) {
 
 $transaction_id = mysqli_insert_id($conn);
 
+ob_clean();
 echo json_encode([
     'success' => true,
     'message' => 'Trading transaction inserted successfully',
@@ -153,6 +169,4 @@ echo json_encode([
 ]);
 
 mysqli_close($conn);
-?>
-
 

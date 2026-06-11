@@ -79,7 +79,7 @@ if (!in_array($side, ['BUY', 'SELL'])) {
     exit;
 }
 
-$ins = "INSERT INTO binance_pastpositions (api_key, uni_id, symbol, position_side, position_amt, entry_price, exit_price, realized_pnl, side, order_id, closed_at, strategy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+$ins = "INSERT IGNORE INTO binance_pastpositions (api_key, uni_id, symbol, position_side, position_amt, entry_price, exit_price, realized_pnl, side, order_id, closed_at, strategy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 $stmt = mysqli_prepare($conn, $ins);
 if (!$stmt) {
     http_response_code(500);
@@ -101,8 +101,14 @@ if (!mysqli_stmt_execute($stmt)) {
     exit;
 }
 
+$affected = mysqli_affected_rows($conn);
 $id = (int) mysqli_insert_id($conn);
 mysqli_stmt_close($stmt);
 mysqli_close($conn);
+
+if ($affected <= 0) {
+    echo json_encode(['success' => true, 'id' => 0, 'skipped' => true]);
+    exit;
+}
 
 echo json_encode(['success' => true, 'id' => $id]);
