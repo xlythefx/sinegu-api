@@ -69,7 +69,7 @@ if (!isset($data['ticker']) || !isset($data['max_increments']) || !isset($data['
 }
 
 $ticker = trim($data['ticker']);
-$max_increments = (int) $data['max_increments'];
+$max_increments = round((float) $data['max_increments'], 3);
 $base_size = (float) $data['base_size'];
 $enabled = isset($data['enabled']) ? ((int) $data['enabled'] ? 1 : 0) : 1;
 $type = isset($data['type']) && $data['type'] !== '' ? trim($data['type']) : null;
@@ -88,12 +88,15 @@ if (empty($ticker)) {
     exit;
 }
 
-if ($max_increments < 1) {
+$minIncrement = (strtolower(trim((string) $broker)) === 'binance') ? 0.001 : 1;
+if ($max_increments < $minIncrement) {
     ob_clean();
     http_response_code(400);
     echo json_encode([
         'success' => false,
-        'message' => 'max_increments must be at least 1',
+        'message' => $minIncrement < 1
+            ? 'max_increments must be at least 0.001'
+            : 'max_increments must be at least 1',
     ]);
     ob_end_flush();
     exit;
@@ -127,7 +130,7 @@ if (!$stmt) {
     exit;
 }
 
-mysqli_stmt_bind_param($stmt, 'ssssidi', $ticker, $type, $broker, $asset_image, $max_increments, $base_size, $enabled);
+mysqli_stmt_bind_param($stmt, 'ssssddi', $ticker, $type, $broker, $asset_image, $max_increments, $base_size, $enabled);
 
 if (mysqli_stmt_execute($stmt)) {
     $newAssetId = mysqli_insert_id($conn);
