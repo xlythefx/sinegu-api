@@ -63,6 +63,10 @@ $base_size = (float) $data['base_size'];
 $enabled = isset($data['enabled']) ? ((int) $data['enabled'] ? 1 : 0) : 1;
 $type = isset($data['type']) && $data['type'] !== '' ? trim($data['type']) : null;
 $broker = isset($data['broker']) && $data['broker'] !== '' ? trim($data['broker']) : null;
+$side = isset($data['side']) ? strtoupper(trim((string) $data['side'])) : 'ALL';
+if (!in_array($side, ['LONG', 'SHORT', 'ALL'], true)) {
+    $side = 'ALL';
+}
 $has_asset_image = array_key_exists('asset_image', $data);
 $asset_image = $has_asset_image && $data['asset_image'] !== '' ? trim((string) $data['asset_image']) : null;
 
@@ -139,9 +143,9 @@ if ($checkStmt) {
 
 // Update asset (include asset_image only if provided in payload, so partial updates don't wipe it)
 if ($has_asset_image) {
-    $updateSql = 'UPDATE assets SET ticker = ?, type = ?, broker = ?, asset_image = ?, max_increments = ?, base_size = ?, enabled = ?, updated_at = NOW() WHERE asset_id = ?';
+    $updateSql = 'UPDATE assets SET ticker = ?, type = ?, broker = ?, side = ?, asset_image = ?, max_increments = ?, base_size = ?, enabled = ?, updated_at = NOW() WHERE asset_id = ?';
 } else {
-    $updateSql = 'UPDATE assets SET ticker = ?, type = ?, broker = ?, max_increments = ?, base_size = ?, enabled = ?, updated_at = NOW() WHERE asset_id = ?';
+    $updateSql = 'UPDATE assets SET ticker = ?, type = ?, broker = ?, side = ?, max_increments = ?, base_size = ?, enabled = ?, updated_at = NOW() WHERE asset_id = ?';
 }
 $stmt = mysqli_prepare($conn, $updateSql);
 
@@ -158,9 +162,9 @@ if (!$stmt) {
 }
 
 if ($has_asset_image) {
-    mysqli_stmt_bind_param($stmt, 'ssssddii', $ticker, $type, $broker, $asset_image, $max_increments, $base_size, $enabled, $asset_id);
+    mysqli_stmt_bind_param($stmt, 'sssssddii', $ticker, $type, $broker, $side, $asset_image, $max_increments, $base_size, $enabled, $asset_id);
 } else {
-    mysqli_stmt_bind_param($stmt, 'sssddii', $ticker, $type, $broker, $max_increments, $base_size, $enabled, $asset_id);
+    mysqli_stmt_bind_param($stmt, 'ssssddii', $ticker, $type, $broker, $side, $max_increments, $base_size, $enabled, $asset_id);
 }
 
 if (mysqli_stmt_execute($stmt)) {

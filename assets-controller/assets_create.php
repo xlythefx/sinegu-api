@@ -74,6 +74,10 @@ $base_size = (float) $data['base_size'];
 $enabled = isset($data['enabled']) ? ((int) $data['enabled'] ? 1 : 0) : 1;
 $type = isset($data['type']) && $data['type'] !== '' ? trim($data['type']) : null;
 $broker = isset($data['broker']) && $data['broker'] !== '' ? trim($data['broker']) : null;
+$side = isset($data['side']) ? strtoupper(trim((string) $data['side'])) : 'ALL';
+if (!in_array($side, ['LONG', 'SHORT', 'ALL'], true)) {
+    $side = 'ALL';
+}
 $asset_image = isset($data['asset_image']) && $data['asset_image'] !== '' ? trim($data['asset_image']) : null;
 
 // Validation
@@ -114,7 +118,7 @@ if ($base_size <= 0) {
 }
 
 // Insert new asset
-$insertSql = 'INSERT INTO assets (ticker, type, broker, asset_image, max_increments, base_size, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+$insertSql = 'INSERT INTO assets (ticker, type, broker, side, asset_image, max_increments, base_size, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
 $stmt = mysqli_prepare($conn, $insertSql);
 
 if (!$stmt) {
@@ -130,7 +134,7 @@ if (!$stmt) {
     exit;
 }
 
-mysqli_stmt_bind_param($stmt, 'ssssddi', $ticker, $type, $broker, $asset_image, $max_increments, $base_size, $enabled);
+mysqli_stmt_bind_param($stmt, 'sssssddi', $ticker, $type, $broker, $side, $asset_image, $max_increments, $base_size, $enabled);
 
 if (mysqli_stmt_execute($stmt)) {
     $newAssetId = mysqli_insert_id($conn);

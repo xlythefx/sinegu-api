@@ -36,7 +36,7 @@ if (!$conn) {
     exit;
 }
 
-$sql = 'SELECT asset_id, ticker, type, broker, asset_image, max_increments, base_size, enabled, created_at, updated_at FROM assets ORDER BY ticker ASC';
+$sql = 'SELECT asset_id, ticker, type, broker, side, asset_image, max_increments, base_size, enabled, created_at, updated_at FROM assets ORDER BY ticker ASC';
 $result = mysqli_query($conn, $sql);
 
 if (!$result) {
@@ -52,7 +52,7 @@ if (!$result) {
 $assets = [];
 while ($row = mysqli_fetch_assoc($result)) {
     $row['asset_id'] = (int) $row['asset_id'];
-    $row['max_increments'] = (int) $row['max_increments'];
+    $row['max_increments'] = (float) $row['max_increments'];
     $row['base_size'] = (float) $row['base_size'];
     $row['enabled'] = (int) $row['enabled'];
     $assets[] = $row;

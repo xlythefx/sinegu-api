@@ -52,6 +52,15 @@ $where = [];
 if (!$includeRead) {
     $where[] = "l.is_read = 0";
 }
+// event_type (exact) and source (LIKE) filters compose with the free-text search: they
+// always AND into the WHERE clause when provided, so the Reason / Operation dropdowns work
+// together with the search box. Legacy `ticker` stays mutually exclusive with `q`.
+if ($filterEvent !== null) {
+    $where[] = "l.event_type = '" . mysqli_real_escape_string($conn, $filterEvent) . "'";
+}
+if ($filterSource !== null) {
+    $where[] = "l.source LIKE '%" . mysqli_real_escape_string($conn, $filterSource) . "%'";
+}
 if ($searchQ !== null) {
     $esc = mysqli_real_escape_string($conn, $searchQ);
     $where[] = "(
@@ -66,16 +75,8 @@ if ($searchQ !== null) {
     OR uc.name LIKE '%$esc%'
     OR uc.email LIKE '%$esc%'
   )";
-} else {
-    if ($filterEvent !== null) {
-        $where[] = "l.event_type = '" . mysqli_real_escape_string($conn, $filterEvent) . "'";
-    }
-    if ($filterSource !== null) {
-        $where[] = "l.source LIKE '%" . mysqli_real_escape_string($conn, $filterSource) . "%'";
-    }
-    if ($filterTicker !== null) {
-        $where[] = "l.ticker LIKE '%" . mysqli_real_escape_string($conn, strtoupper($filterTicker)) . "%'";
-    }
+} elseif ($filterTicker !== null) {
+    $where[] = "l.ticker LIKE '%" . mysqli_real_escape_string($conn, strtoupper($filterTicker)) . "%'";
 }
 $where_sql = count($where) > 0 ? ' WHERE ' . implode(' AND ', $where) : '';
 
@@ -120,6 +121,27 @@ while ($row = mysqli_fetch_assoc($result)) {
 }
 
 mysqli_free_result($result);
+
+// Distinct reason (event_type) and operation (source) values across ALL rows — powers the
+// admin filter dropdowns. Independent of the current filters so the option lists stay stable.
+$eventTypes = [];
+$dist_event = mysqli_query($conn, "SELECT DISTINCT event_type FROM capital_api_logs WHERE event_type IS NOT NULL AND event_type <> '' ORDER BY event_type ASC");
+if ($dist_event) {
+    while ($row = mysqli_fetch_assoc($dist_event)) {
+        $eventTypes[] = $row['event_type'];
+    }
+    mysqli_free_result($dist_event);
+}
+
+$sources = [];
+$dist_source = mysqli_query($conn, "SELECT DISTINCT source FROM capital_api_logs WHERE source IS NOT NULL AND source <> '' ORDER BY source ASC");
+if ($dist_source) {
+    while ($row = mysqli_fetch_assoc($dist_source)) {
+        $sources[] = $row['source'];
+    }
+    mysqli_free_result($dist_source);
+}
+
 mysqli_close($conn);
 
 echo json_encode([
@@ -128,4 +150,6 @@ echo json_encode([
     'total' => $total,
     'limit' => $limit,
     'offset' => $offset,
+    'event_types' => $eventTypes,
+    'sources' => $sources,
 ]);
