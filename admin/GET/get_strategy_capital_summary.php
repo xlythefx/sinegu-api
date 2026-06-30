@@ -35,6 +35,29 @@ if ($strategy === '') {
     exit;
 }
 
+// Optional ticker filter (mirrors the strategy page's include/exclude chips).
+// Only accounts with >=1 surviving strategy trade after the filter are counted,
+// so excluding every ticker an account traded drops that whole account's capital.
+$tickersRaw = isset($_GET['tickers']) ? trim($_GET['tickers']) : '';
+$mode = (isset($_GET['mode']) && strtolower(trim($_GET['mode'])) === 'exclude') ? 'exclude' : 'include';
+$tickers = array_values(array_filter(array_map('trim', explode(',', $tickersRaw)), function ($t) {
+    return $t !== '';
+}));
+
+/**
+ * Build an "AND <column> IN/NOT IN (...)" fragment for the ticker filter on a
+ * specific column (trades use `ticker`, binance_pastpositions uses `symbol`).
+ * Returns [sqlFragment, params[], types].
+ */
+function ticker_clause($column, array $tickers, $mode) {
+    if (empty($tickers)) {
+        return ['', [], ''];
+    }
+    $ph = implode(',', array_fill(0, count($tickers), '?'));
+    $op = $mode === 'exclude' ? 'NOT IN' : 'IN';
+    return [" AND $column $op ($ph)", $tickers, str_repeat('s', count($tickers))];
+}
+
 require_once __DIR__ . '/../../conn.php';
 if (!$conn) {
     ob_end_clean();
@@ -51,10 +74,14 @@ function fail_out($conn, $msg) {
     exit;
 }
 
-function fetch_distinct_ids($conn, $sql, $strategy) {
+function fetch_distinct_ids($conn, $sql, $strategy, array $extraParams = [], $extraTypes = '') {
     $ids = [];
     if (!($stmt = mysqli_prepare($conn, $sql))) return $ids;
-    mysqli_stmt_bind_param($stmt, 's', $strategy);
+    $types = 's' . $extraTypes;
+    $params = array_merge([$strategy], $extraParams);
+    $refs = [];
+    foreach ($params as $k => $v) { $refs[$k] = &$params[$k]; }
+    call_user_func_array([$stmt, 'bind_param'], array_merge([$types], $refs));
     if (mysqli_stmt_execute($stmt)) {
         $r = mysqli_stmt_get_result($stmt);
         while ($row = mysqli_fetch_assoc($r)) {
@@ -68,10 +95,13 @@ function fetch_distinct_ids($conn, $sql, $strategy) {
 
 // ── Capital.com ───────────────────────────────────────────────────────────────
 $capital = ['accounts' => 0, 'balance' => 0.0, 'initial_deposit' => 0.0, 'net_flow' => 0.0];
+list($capTickClause, $capTickParams, $capTickTypes) = ticker_clause('ticker', $tickers, $mode);
 $capIds = fetch_distinct_ids(
     $conn,
-    'SELECT DISTINCT account_id FROM trades WHERE strategy = ? AND account_id IS NOT NULL',
-    $strategy
+    'SELECT DISTINCT account_id FROM trades WHERE strategy = ? AND account_id IS NOT NULL' . $capTickClause,
+    $strategy,
+    $capTickParams,
+    $capTickTypes
 );
 if (!empty($capIds)) {
     $intIds = array_map('intval', $capIds);
@@ -106,10 +136,14 @@ if (!empty($capIds)) {
 
 // ── Binance ───────────────────────────────────────────────────────────────────
 $binance = ['accounts' => 0, 'balance' => 0.0, 'initial_deposit' => 0.0, 'net_flow' => 0.0];
+// Binance stores the instrument in `symbol` (the strategy page's Binance ticker chips map to it).
+list($binTickClause, $binTickParams, $binTickTypes) = ticker_clause('symbol', $tickers, $mode);
 $binKeys = fetch_distinct_ids(
     $conn,
-    'SELECT DISTINCT api_key FROM binance_pastpositions WHERE strategy = ? AND api_key IS NOT NULL',
-    $strategy
+    'SELECT DISTINCT api_key FROM binance_pastpositions WHERE strategy = ? AND api_key IS NOT NULL' . $binTickClause,
+    $strategy,
+    $binTickParams,
+    $binTickTypes
 );
 if (!empty($binKeys)) {
     $ph = implode(',', array_fill(0, count($binKeys), '?'));
@@ -147,10 +181,13 @@ if (!empty($binKeys)) {
 
 // ── IG.com ────────────────────────────────────────────────────────────────────
 $ig = ['accounts' => 0, 'balance' => 0.0, 'initial_deposit' => 0.0, 'net_flow' => 0.0];
+list($igTickClause, $igTickParams, $igTickTypes) = ticker_clause('ticker', $tickers, $mode);
 $igIds = fetch_distinct_ids(
     $conn,
-    'SELECT DISTINCT account_id FROM ig_past_positions WHERE strategy = ? AND account_id IS NOT NULL',
-    $strategy
+    'SELECT DISTINCT account_id FROM ig_past_positions WHERE strategy = ? AND account_id IS NOT NULL' . $igTickClause,
+    $strategy,
+    $igTickParams,
+    $igTickTypes
 );
 if (!empty($igIds)) {
     $intIds = array_map('intval', $igIds);
