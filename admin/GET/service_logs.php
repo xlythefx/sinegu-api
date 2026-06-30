@@ -114,32 +114,36 @@ function collect_log_files($parent, array $globs) {
     return $files; // [absPath => mtime]
 }
 
-/** Read the last $n lines of a file without loading the whole thing into memory. */
+/**
+ * Read the last $n lines of a file. Reads at most the final 512 KB in one pass
+ * (bounded memory — safe for large, actively-written rotating logs), then splits
+ * once. If the tail 512 KB holds fewer than $n lines we just return what's there.
+ */
 function read_last_lines($path, $n) {
     $f = @fopen($path, 'rb');
     if (!$f) {
         return null;
     }
-    $buffer = '';
-    $chunkSize = 4096;
-    $lineCount = 0;
+    $maxBytes = 512 * 1024;
     fseek($f, 0, SEEK_END);
     $fileSize = ftell($f);
-    $read = 0;
-    while ($read < $fileSize && $lineCount <= $n) {
-        $seek = min($chunkSize, $fileSize - $read);
-        $read += $seek;
-        fseek($f, $fileSize - $read);
-        $chunk = fread($f, $seek);
-        $buffer = $chunk . $buffer;
-        $lineCount = substr_count($buffer, "\n");
+    $toRead = min($fileSize, $maxBytes);
+    if ($toRead > 0) {
+        fseek($f, $fileSize - $toRead);
+        $data = fread($f, $toRead);
+    } else {
+        $data = '';
     }
     fclose($f);
-    $allLines = explode("\n", str_replace("\r\n", "\n", rtrim($buffer, "\n")));
-    if (count($allLines) > $n) {
-        $allLines = array_slice($allLines, -$n);
+    if ($data === false) {
+        return null;
     }
-    return $allLines;
+    $data = str_replace("\r\n", "\n", $data);
+    $lines = explode("\n", rtrim($data, "\n"));
+    if (count($lines) > $n) {
+        $lines = array_slice($lines, -$n);
+    }
+    return $lines;
 }
 
 // --- NSSM status (best-effort; never fatal) ---
@@ -157,9 +161,7 @@ if ($nssmStatus === '') {
 
 // --- Log tail ---
 $allFiles = collect_log_files($parent, $cfg['globs']);          // [absPath => mtime], newest first
-$available = array_map(function ($p) use ($parent) {
-    return basename($p);
-}, array_keys($allFiles));
+$available = array_map('basename', array_keys($allFiles));
 $available = array_values(array_unique($available));
 
 // Optional: caller can pick a specific log by basename (e.g. fetch_balances.log).
@@ -199,4 +201,4 @@ echo json_encode([
     'line_count'   => $logLines !== null ? count($logLines) : 0,
     'error'        => $logError,
     'generated_at' => date('c'),
-]);
+], JSON_INVALID_UTF8_SUBSTITUTE);

@@ -26,6 +26,10 @@
 
 ob_start();
 
+// The OpenAI round-trips + tool sub-requests can take longer than the default
+// web max_execution_time (often 30s), which would 502 mid-call. Give it room.
+@set_time_limit(120);
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
@@ -46,10 +50,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 require_once __DIR__ . '/../../env.php';
 
+// WAMP's curl often has no CA bundle configured, so outbound HTTPS (OpenAI, and
+// our own Cloudflare-fronted tool calls) fails cert verification. Ship one with
+// the repo and point curl at it explicitly so it works on every VPS.
+define('CHATBOT_CA_BUNDLE', dirname(__DIR__, 2) . '/includes/certs/cacert.pem');
+
 function respond($code, $payload) {
     ob_end_clean();
     http_response_code($code);
-    echo json_encode($payload);
+    echo json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
 }
 
@@ -108,12 +117,16 @@ function tool_http_get($url, $token) {
     if ($token !== '') {
         $headers[] = 'X-Admin-Token: ' . $token;
     }
-    curl_setopt_array($ch, [
+    $opts = [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HTTPHEADER     => $headers,
         CURLOPT_TIMEOUT        => 25,
         CURLOPT_CONNECTTIMEOUT => 10,
-    ]);
+    ];
+    if (is_file(CHATBOT_CA_BUNDLE)) {
+        $opts[CURLOPT_CAINFO] = CHATBOT_CA_BUNDLE;
+    }
+    curl_setopt_array($ch, $opts);
     $resp = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $err = curl_error($ch);
@@ -211,7 +224,7 @@ function openai_chat($apiKey, $model, $messages, $tools) {
         'temperature' => 0.2,
     ];
     $ch = curl_init('https://api.openai.com/v1/chat/completions');
-    curl_setopt_array($ch, [
+    $opts = [
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => json_encode($payload),
         CURLOPT_RETURNTRANSFER => true,
@@ -219,9 +232,13 @@ function openai_chat($apiKey, $model, $messages, $tools) {
             'Content-Type: application/json',
             'Authorization: Bearer ' . $apiKey,
         ],
-        CURLOPT_TIMEOUT => 90,
+        CURLOPT_TIMEOUT => 55,
         CURLOPT_CONNECTTIMEOUT => 15,
-    ]);
+    ];
+    if (is_file(CHATBOT_CA_BUNDLE)) {
+        $opts[CURLOPT_CAINFO] = CHATBOT_CA_BUNDLE;
+    }
+    curl_setopt_array($ch, $opts);
     $resp = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $err = curl_error($ch);
@@ -259,11 +276,13 @@ $finalReply = null;
 for ($round = 0; $round < $maxRounds; $round++) {
     $res = openai_chat($apiKey, $model, $messages, $tools);
     if (!$res['ok']) {
-        respond(502, ['success' => false, 'message' => $res['error']]);
+        // Return 200 with success:false so the message survives Cloudflare (which
+        // replaces 5xx bodies with its own page) and reaches the UI.
+        respond(200, ['success' => false, 'message' => $res['error']]);
     }
     $choice = $res['data']['choices'][0] ?? null;
     if (!$choice) {
-        respond(502, ['success' => false, 'message' => 'Empty response from model']);
+        respond(200, ['success' => false, 'message' => 'Empty response from model']);
     }
     $msg = $choice['message'];
     $messages[] = $msg; // append assistant turn (may contain tool_calls)
