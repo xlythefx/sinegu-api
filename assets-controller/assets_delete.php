@@ -92,6 +92,13 @@ if ($checkStmt) {
     mysqli_stmt_close($checkStmt);
 }
 
+// Capture the asset snapshot before deletion for the audit history.
+$asset_audit_old = null;
+if (file_exists(__DIR__ . '/../includes/asset_audit.php')) {
+    require_once __DIR__ . '/../includes/asset_audit.php';
+    $asset_audit_old = asset_audit_fetch_snapshot($conn, $asset_id);
+}
+
 // Delete asset
 $deleteSql = 'DELETE FROM assets WHERE asset_id = ?';
 $stmt = mysqli_prepare($conn, $deleteSql);
@@ -115,6 +122,10 @@ if (mysqli_stmt_execute($stmt)) {
     if (file_exists(__DIR__ . '/../includes/api_log.php')) {
         require_once __DIR__ . '/../includes/api_log.php';
         api_log($conn, 'assets-controller/assets_delete', 'Asset deleted successfully', 'delete', true);
+    }
+    if (function_exists('asset_audit_log')) {
+        $ticker_for_audit = is_array($asset_audit_old) ? ($asset_audit_old['ticker'] ?? null) : null;
+        asset_audit_log($conn, $asset_id, $ticker_for_audit, 'delete', $asset_audit_old, null);
     }
     mysqli_close($conn);
     

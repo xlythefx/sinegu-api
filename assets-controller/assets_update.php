@@ -141,6 +141,13 @@ if ($checkStmt) {
     mysqli_stmt_close($checkStmt);
 }
 
+// Capture the pre-update snapshot for the audit history (old → new diff).
+$asset_audit_old = null;
+if (file_exists(__DIR__ . '/../includes/asset_audit.php')) {
+    require_once __DIR__ . '/../includes/asset_audit.php';
+    $asset_audit_old = asset_audit_fetch_snapshot($conn, $asset_id);
+}
+
 // Update asset (include asset_image only if provided in payload, so partial updates don't wipe it)
 if ($has_asset_image) {
     $updateSql = 'UPDATE assets SET ticker = ?, type = ?, broker = ?, side = ?, asset_image = ?, max_increments = ?, base_size = ?, enabled = ?, updated_at = NOW() WHERE asset_id = ?';
@@ -172,6 +179,10 @@ if (mysqli_stmt_execute($stmt)) {
     if (file_exists(__DIR__ . '/../includes/api_log.php')) {
         require_once __DIR__ . '/../includes/api_log.php';
         api_log($conn, 'assets-controller/assets_update', 'Asset updated successfully', 'update', true);
+    }
+    if (function_exists('asset_audit_log')) {
+        $asset_audit_new = asset_audit_fetch_snapshot($conn, $asset_id);
+        asset_audit_log($conn, $asset_id, $ticker, 'update', $asset_audit_old, $asset_audit_new);
     }
     mysqli_close($conn);
     

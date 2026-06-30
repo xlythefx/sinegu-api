@@ -1,6 +1,7 @@
 <?php
 /**
- * Check if master account (account_id=1) has reached max increments for a ticker
+ * Check if the master account has reached max increments for a ticker.
+ * Master is the account whose name is 'master' (NOT a hardcoded id).
  * GET params: ticker (required)
  * Returns JSON: {"success": true, "is_blocked": false, "master_count": 5, "max_increments": 10}
  */
@@ -37,9 +38,13 @@ if (!$conn) {
     exit;
 }
 
-// Get master account position count
+// Get master account position count. Master is resolved by name='master', joining
+// positions -> accounts, so renumbered/reinserted accounts can't break the gate.
 $ticker = mysqli_real_escape_string($conn, $ticker);
-$sql = "SELECT COUNT(*) AS position_count FROM positions WHERE account_id = 1 AND ticker = '{$ticker}'";
+$sql = "SELECT COUNT(*) AS position_count
+        FROM positions p
+        INNER JOIN accounts a ON a.id = p.account_id
+        WHERE a.name = 'master' AND p.ticker = '{$ticker}'";
 $result = mysqli_query($conn, $sql);
 
 if (!$result) {

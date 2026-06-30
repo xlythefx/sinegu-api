@@ -2,12 +2,14 @@
 /**
  * Master-account performance-report aggregates for the Telegram Daily/Weekly/Monthly report.
  *
- * Window aggregates over the `trades` table for ONE account (the master = account_id 1),
+ * Window aggregates over the `trades` table for ONE account. By default this is the
+ * master account, resolved by name='master' (NOT a hardcoded id). An explicit account_id
+ * param overrides it for ad-hoc per-account reports.
  * between [from, to) on trades.created_at. PnL stays in raw currency here; the bot converts
  * it to a percentage against the account balance.
  *
  * GET params:
- *   account_id  (int, default 1)
+ *   account_id  (int, optional — defaults to the account named 'master')
  *   from        (datetime 'YYYY-MM-DD HH:MM:SS', inclusive lower bound)  REQUIRED
  *   to          (datetime 'YYYY-MM-DD HH:MM:SS', exclusive upper bound)  REQUIRED
  *
@@ -34,7 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-$accountId = isset($_GET['account_id']) ? (int) $_GET['account_id'] : 1;
+// null here means "no explicit id given" → resolve the master by name after conn opens.
+$accountId = isset($_GET['account_id']) ? (int) $_GET['account_id'] : null;
 $from = isset($_GET['from']) ? trim($_GET['from']) : '';
 $to = isset($_GET['to']) ? trim($_GET['to']) : '';
 
@@ -53,6 +56,19 @@ if (!$conn) {
     http_response_code(500);
     echo json_encode(['success' => false, 'error' => 'Database connection failed']);
     exit;
+}
+
+// Resolve master by name when no explicit account_id was requested.
+if ($accountId === null) {
+    $mRes = mysqli_query($conn, "SELECT id FROM accounts WHERE name = 'master' LIMIT 1");
+    $mRow = $mRes ? mysqli_fetch_assoc($mRes) : null;
+    if (!$mRow) {
+        mysqli_close($conn);
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => "No account named 'master' found"]);
+        exit;
+    }
+    $accountId = (int) $mRow['id'];
 }
 
 /** Run a prepared statement; on failure emit a 500 JSON error and exit. */

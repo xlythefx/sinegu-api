@@ -143,6 +143,19 @@ if (mysqli_stmt_execute($stmt)) {
         require_once __DIR__ . '/../includes/api_log.php';
         api_log($conn, 'assets-controller/assets_create', 'Asset created successfully', 'create', true);
     }
+    if (file_exists(__DIR__ . '/../includes/asset_audit.php')) {
+        require_once __DIR__ . '/../includes/asset_audit.php';
+        asset_audit_log($conn, $newAssetId, $ticker, 'create', null, [
+            'ticker' => $ticker,
+            'type' => $type,
+            'broker' => $broker,
+            'side' => $side,
+            'asset_image' => $asset_image,
+            'max_increments' => (float) $max_increments,
+            'base_size' => (float) $base_size,
+            'enabled' => (int) $enabled,
+        ]);
+    }
     mysqli_close($conn);
 
     ob_clean();
