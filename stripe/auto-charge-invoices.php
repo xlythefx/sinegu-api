@@ -305,10 +305,14 @@ try {
 
                 if (mysqli_query($conn, $updateQuery)) {
                     $userIdEscaped = mysqli_real_escape_string($conn, $billingPeriod['user_id']);
-                    // Only the capital.com `accounts` table tracks enabled/disabled state
-                    // for billing-driven gating. binance_accounts has no `enabled` column
-                    // and ig_accounts is gated separately, so skip for those brokers.
-                    if ($broker === 'capital.com') {
+                    // Reconnect symmetry: re-enable this user's accounts on the paid broker's
+                    // table so a non-payment disconnect (enabled = 0) is lifted after payment.
+                    // All three brokers now have an `enabled` column.
+                    if ($broker === 'binance') {
+                        mysqli_query($conn, "UPDATE binance_accounts SET enabled = 1 WHERE uni_id = '$userIdEscaped'");
+                    } elseif ($broker === 'ig') {
+                        mysqli_query($conn, "UPDATE ig_accounts SET enabled = 1 WHERE uni_id = '$userIdEscaped'");
+                    } else {
                         mysqli_query($conn, "UPDATE accounts SET enabled = 1 WHERE uni_id = '$userIdEscaped'");
                     }
                     mysqli_commit($conn);

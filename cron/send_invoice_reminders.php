@@ -1,17 +1,22 @@
 <?php
 /**
- * Cron: Send invoice reminder emails (2nd, 3rd, 4th).
- * Schedule: Run daily (e.g. 09:00 USA Eastern) on 1st–8th of each month only.
- * Logic: 2nd reminder after 2 days, 3rd after 4 days, 4th on day 7 / due date.
+ * Cron: Send invoice reminder emails (2nd, 3rd, 4th) — all brokers.
+ * Schedule: daily (e.g. 09:00 America/New_York), fired by the Telegram billing cron listener.
+ * Reminder cadence (keyed off invoice_sent_at + reminder_count, not day of month):
+ *   2nd after 2 days, 3rd after 4 days, 4th on day 7 / due date.
+ * The 1st–8th month window is retained as a safety bound for the reminder phase; the
+ * overdue/disconnect step (mark_overdue_and_disconnect.php) takes over from day 9.
  *
- * CLI: php cron/send_invoice_reminders.php (e.g. from Windows Task Scheduler).
- * HTTP: GET or POST http://localhost/sinegu-api/cron/send_invoice_reminders.php for testing.
+ * Covers capital.com (billing_periods), binance (binance_invoices), ig (ig_invoices).
+ * Secret-guarded (BILLING_CRON_SECRET).
+ *
+ * CLI:  php cron/send_invoice_reminders.php
+ * HTTP: GET/POST http://localhost/sinegu-api/cron/send_invoice_reminders.php (header X-Billing-Secret)
  */
 
 $isCli = php_sapi_name() === 'cli';
 date_default_timezone_set('America/New_York');
-// Log that script was executed (for Task Scheduler / cron debugging)
-file_put_contents(
+@file_put_contents(
     __DIR__ . '/../cron_reminders.log',
     date('Y-m-d H:i:s') . ' — send_invoice_reminders.php run_mode=' . ($isCli ? 'cli' : 'http') . "\n",
     FILE_APPEND
@@ -19,6 +24,16 @@ file_put_contents(
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, X-Billing-Secret');
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
+    http_response_code(204);
+    exit;
+}
+
+require_once __DIR__ . '/../includes/cron_auth.php';
+require_billing_cron_secret();
 
 $dayOfMonth = (int) date('j');
 if ($dayOfMonth < 1 || $dayOfMonth > 8) {
@@ -28,9 +43,7 @@ if ($dayOfMonth < 1 || $dayOfMonth > 8) {
         'run_mode' => $isCli ? 'cli' : 'http',
         'reminders_sent' => 0,
         'rows_checked' => 0,
-        'rows_skipped_reason' => [],
         'errors' => [],
-        'details' => [],
     ]);
     exit;
 }
@@ -44,76 +57,103 @@ if (!$conn) {
 }
 
 $today = date('Y-m-d');
-$results = ['reminders_sent' => 0, 'errors' => [], 'details' => [], 'rows_checked' => 0, 'rows_skipped_reason' => []];
 
-$sql = "SELECT bp.id, bp.user_id, bp.month_year, bp.total_fee, bp.reminder_count, bp.invoice_sent_at, bp.created_at, bp.due_date, a.currency_type
-        FROM billing_periods bp
-        INNER JOIN accounts a ON bp.account_id = a.id
-        WHERE bp.status = 'pending' AND bp.total_fee > 0 AND (bp.due_date IS NULL OR bp.due_date >= CURDATE())";
-$res = mysqli_query($conn, $sql);
-if (!$res) {
-    echo json_encode(['success' => false, 'error' => mysqli_error($conn)]);
-    exit;
-}
+// Per-broker descriptors. Each SELECT returns:
+//   id, user_id, month_year, total_fee, reminder_count, invoice_sent_at, created_at, due_date, currency_type
+$brokers = [
+    'capital.com' => [
+        'invoice_table' => 'billing_periods',
+        'select' => "SELECT bp.id, bp.user_id, bp.month_year, bp.total_fee, bp.reminder_count,
+                            bp.invoice_sent_at, bp.created_at, bp.due_date, a.currency_type
+                     FROM billing_periods bp
+                     INNER JOIN accounts a ON bp.account_id = a.id
+                     WHERE bp.status = 'pending' AND bp.total_fee > 0
+                       AND (bp.due_date IS NULL OR bp.due_date >= CURDATE())",
+    ],
+    'binance' => [
+        'invoice_table' => 'binance_invoices',
+        'select' => "SELECT bp.id, bp.user_id, bp.month_year, bp.total_fee, bp.reminder_count,
+                            bp.invoice_sent_at, bp.created_at, bp.due_date, a.currency_type
+                     FROM binance_invoices bp
+                     INNER JOIN binance_accounts a ON bp.api_key = a.api_key
+                     WHERE bp.status = 'pending' AND bp.total_fee > 0
+                       AND (bp.due_date IS NULL OR bp.due_date >= CURDATE())",
+    ],
+    'ig' => [
+        'invoice_table' => 'ig_invoices',
+        'select' => "SELECT bp.id, bp.user_id, bp.month_year, bp.total_fee, bp.reminder_count,
+                            bp.invoice_sent_at, bp.created_at, bp.due_date, a.currency_type
+                     FROM ig_invoices bp
+                     INNER JOIN ig_accounts a ON bp.api_key = a.api_key
+                     WHERE bp.status = 'pending' AND bp.total_fee > 0
+                       AND (bp.due_date IS NULL OR bp.due_date >= CURDATE())",
+    ],
+];
 
-while ($row = mysqli_fetch_assoc($res)) {
-    $results['rows_checked']++;
-    $bpId = (int) $row['id'];
-    $uniId = $row['user_id'];
-    $sentAt = $row['invoice_sent_at'] ?: $row['created_at'];
-    if (!$sentAt) {
-        $results['rows_skipped_reason']['no_sent_date'] = ($results['rows_skipped_reason']['no_sent_date'] ?? 0) + 1;
-        continue;
-    }
-    $sentDate = date('Y-m-d', strtotime($sentAt));
-    $daysSince = (strtotime($today) - strtotime($sentDate)) / 86400;
-    $reminderCount = (int) $row['reminder_count'];
-    $dueDate = $row['due_date'];
+$results = ['reminders_sent' => 0, 'rows_checked' => 0, 'by_broker' => [], 'errors' => [], 'details' => []];
 
-    $invoiceData = [
-        'month_year' => $row['month_year'],
-        'total_fee' => (float) $row['total_fee'],
-        'currency' => $row['currency_type'] ?? 'USD',
-    ];
-
-    $sendReminder = null; // 2, 3, or 4
-    if ($reminderCount === 0 && $daysSince >= 2) {
-        $sendReminder = 2;
-    } elseif ($reminderCount === 1 && $daysSince >= 4) {
-        $sendReminder = 3;
-    } elseif ($reminderCount === 2 && ($daysSince >= 7 || ($dueDate && $today >= $dueDate))) {
-        $sendReminder = 4;
-    }
-
-    if ($sendReminder === null) {
-        $key = 'schedule_not_met_bp' . $bpId;
-        $results['rows_skipped_reason'][$key] = "reminder_count=$reminderCount, days_since_sent=" . round($daysSince, 1) . " (need 2/4/7 for 2nd/3rd/4th)";
+foreach ($brokers as $brokerName => $cfg) {
+    $sent = 0;
+    $res = mysqli_query($conn, $cfg['select']);
+    if (!$res) {
+        $results['errors'][] = ['broker' => $brokerName, 'error' => mysqli_error($conn)];
+        $results['by_broker'][$brokerName] = 0;
         continue;
     }
 
-    $emailResult = sendInvoiceReminderEmail($conn, $uniId, $invoiceData, $sendReminder);
-    if ($emailResult['success']) {
-        $newCount = $sendReminder === 2 ? 1 : ($sendReminder === 3 ? 2 : 3);
-        $up = "UPDATE billing_periods SET reminder_count = $newCount, last_reminder_sent_at = NOW() WHERE id = $bpId";
-        mysqli_query($conn, $up);
-        $results['reminders_sent']++;
-        $results['details'][] = ['billing_period_id' => $bpId, 'reminder' => $sendReminder, 'status' => 'sent'];
-    } else {
-        $results['errors'][] = ['billing_period_id' => $bpId, 'reminder' => $sendReminder, 'error' => $emailResult['message']];
-    }
-}
+    while ($row = mysqli_fetch_assoc($res)) {
+        $results['rows_checked']++;
+        $invId = (int) $row['id'];
+        $uniId = $row['user_id'];
+        $sentAt = $row['invoice_sent_at'] ?: $row['created_at'];
+        if (!$sentAt) {
+            continue;
+        }
+        $sentDate = date('Y-m-d', strtotime($sentAt));
+        $daysSince = (strtotime($today) - strtotime($sentDate)) / 86400;
+        $reminderCount = (int) $row['reminder_count'];
+        $dueDate = $row['due_date'];
 
-$message = $results['reminders_sent'] > 0
-    ? 'Reminder run complete. ' . $results['reminders_sent'] . ' reminder(s) sent.'
-    : 'Reminder run complete. No reminders sent. Check: invoice_sent_at must be 2+ days ago for 2nd reminder, reminder_count must be 0 for 2nd (1 for 3rd, 2 for 4th). See rows_skipped_reason for why each row was skipped.';
+        $sendReminder = null; // 2, 3, or 4
+        if ($reminderCount === 0 && $daysSince >= 2) {
+            $sendReminder = 2;
+        } elseif ($reminderCount === 1 && $daysSince >= 4) {
+            $sendReminder = 3;
+        } elseif ($reminderCount === 2 && ($daysSince >= 7 || ($dueDate && $today >= $dueDate))) {
+            $sendReminder = 4;
+        }
+        if ($sendReminder === null) {
+            continue;
+        }
+
+        $invoiceData = [
+            'month_year' => $row['month_year'],
+            'total_fee'  => (float) $row['total_fee'],
+            'currency'   => $row['currency_type'] ?? 'USD',
+        ];
+
+        $emailResult = sendInvoiceReminderEmail($conn, $uniId, $invoiceData, $sendReminder);
+        if (!empty($emailResult['success'])) {
+            $newCount = $sendReminder === 2 ? 1 : ($sendReminder === 3 ? 2 : 3);
+            mysqli_query($conn, "UPDATE {$cfg['invoice_table']} SET reminder_count = $newCount, last_reminder_sent_at = NOW() WHERE id = $invId");
+            $sent++;
+            $results['reminders_sent']++;
+            $results['details'][] = ['broker' => $brokerName, 'invoice_id' => $invId, 'reminder' => $sendReminder, 'status' => 'sent'];
+        } else {
+            $results['errors'][] = ['broker' => $brokerName, 'invoice_id' => $invId, 'reminder' => $sendReminder, 'error' => $emailResult['message'] ?? 'send failed'];
+        }
+    }
+    mysqli_free_result($res);
+    $results['by_broker'][$brokerName] = $sent;
+}
 
 echo json_encode([
-    'success' => true,
-    'message' => $message,
-    'run_mode' => $isCli ? 'cli' : 'http',
+    'success'        => count($results['errors']) === 0,
+    'message'        => 'Reminder run complete (capital.com, binance, ig). ' . $results['reminders_sent'] . ' sent.',
+    'run_mode'       => $isCli ? 'cli' : 'http',
     'reminders_sent' => $results['reminders_sent'],
-    'rows_checked' => $results['rows_checked'],
-    'rows_skipped_reason' => $results['rows_skipped_reason'],
-    'errors' => $results['errors'],
-    'details' => $results['details'],
+    'rows_checked'   => $results['rows_checked'],
+    'by_broker'      => $results['by_broker'],
+    'errors'         => $results['errors'],
+    'details'        => $results['details'],
 ]);

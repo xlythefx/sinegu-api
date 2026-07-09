@@ -322,6 +322,13 @@ try {
         // ---------- 4.8 Update HWM in accounts (capital.com only) ----------
         if ($broker !== 'capital.com') {
             // For binance/ig, HWM is stored directly in the invoice table — no accounts table to update.
+            // Reconnect symmetry: re-enable this user's accounts for the paid broker so a
+            // non-payment disconnect is lifted once the invoice is paid.
+            if ($broker === 'binance') {
+                mysqli_query($conn, "UPDATE binance_accounts SET enabled = 1 WHERE uni_id = '$actualUserIdEscaped'");
+            } elseif ($broker === 'ig') {
+                mysqli_query($conn, "UPDATE ig_accounts SET enabled = 1 WHERE uni_id = '$actualUserIdEscaped'");
+            }
             mysqli_commit($conn);
             goto stripe_webhook_success;
         }
