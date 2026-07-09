@@ -76,8 +76,13 @@ Flask bots (Python)
     ├─ CapitalFlask   src/main.py        :5000  (Capital.com)
     ├─ CapitalFlask   src/accounts_listener.py  :5001  (session refresh)
     ├─ binance-flask  src/main.py        :5001  (Binance Futures)
-    └─ ig-flask       src/main.py        (IG.com)
+    └─ ig-flask       src/main.py        :5002  (IG.com)
 ```
+
+Each broker's flask exposes a **synchronous** `POST /admin/balances/refresh` that fetches every
+enabled account's balance + unrealized P&L from the broker, writes it to the DB, and returns only
+when done — Capital `:5000`, binance `:5001`, ig `:5002`. Used by the monthly billing wrapper to
+refresh balances before generating invoices (see Monthly Billing below).
 
 ### PHP API (`sinegu-api`)
 
@@ -118,6 +123,25 @@ Webhook queue serializes TradingView signals to avoid Capital.com rate limits. C
 | `routes/admin.py` | Admin Blueprint. |
 
 Position mode (hedge vs one-way) is configured via `POSITION_MODE` in `hooks.py` and can be synced on startup with `BINANCE_SYNC_POSITION_MODE_ON_STARTUP`.
+
+### Monthly Billing (cron listener)
+
+Invoices generate on the **1st, 00:05 America/New_York**, fired by the Telegram bot
+(`billing_cron.py`) which POSTs to `cron/run_monthly_billing.php` with the `BILLING_CRON_SECRET`.
+The wrapper runs, in order (all logic stays in the called endpoints):
+
+1. **Refresh balances** — `POST /admin/balances/refresh` on each flask (`CAPITAL_FLASK_URL` /
+   `BINANCE_FLASK_URL` / `IG_FLASK_URL`, default `http://localhost:5000|5001|5002`). Synchronous;
+   non-fatal per broker. Balances write back via `flask/update_account_balance.php`,
+   `binance-flask/update_balance.php`, `igcom/update_account_balance.php`.
+2. **Generate** — `generate_invoices.php` (capital) + `generate_invoices_binance.php` + `_ig.php`.
+   Each is transactional + idempotent per account+month.
+3. **Auto-charge** — `stripe/auto-charge-invoices.php` (all brokers, saved Stripe cards).
+
+Related cron endpoints (all secret-guarded via `includes/cron_auth.php`, bot-scheduled):
+`cron/send_invoice_reminders.php` (daily 09:00 ET, days 1–8) and
+`cron/mark_overdue_and_disconnect.php` (daily 09:15 ET — marks `overdue` + `enabled=0`, all brokers).
+HWM advances at invoice **generation** (invoice row `hwm_after`), not at payment.
 
 ### Webhook Payload (TradingView → Flask)
 
