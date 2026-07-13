@@ -45,12 +45,79 @@ $uni_id = trim($input['uni_id']);
 $requested_account_id = isset($input['account_id']) ? (int) $input['account_id'] : null;
 
 require_once __DIR__ . '/../conn.php';
+require_once __DIR__ . '/../combined_master.php';
 
 if (!$conn) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
         'message' => 'Database connection failed',
+    ]);
+    exit;
+}
+
+// Combined Master (temporary, prod-only via .env): when the dashboard requests the
+// current master account, splice the legacy account's pre-cutoff daily PnL with the
+// current account's post-cutoff daily PnL into one continuous series (USD, no FX).
+// Runs before the normal per-user logic and fully handles the response.
+$combined = ($requested_account_id !== null) ? combined_master_for_account($requested_account_id) : null;
+if ($combined) {
+    // Baseline = legacy account's initial deposit (start of the combined timeline).
+    $baseline = 0.0;
+    if ($depStmt = mysqli_prepare($conn, 'SELECT COALESCE(initial_deposit, deposit_amount, 0) FROM accounts WHERE id = ?')) {
+        mysqli_stmt_bind_param($depStmt, 'i', $combined['legacy_id']);
+        if (mysqli_stmt_execute($depStmt)) {
+            mysqli_stmt_bind_result($depStmt, $baseline);
+            mysqli_stmt_fetch($depStmt);
+        }
+        mysqli_stmt_close($depStmt);
+    }
+    $baseline = (float) $baseline;
+
+    $dailySql = "SELECT COALESCE(DATE(date_closed), DATE(created_at)) AS trade_date, COALESCE(SUM(pnl), 0) AS pnl
+                 FROM trades
+                 WHERE ((account_id = ? AND COALESCE(DATE(date_closed), DATE(created_at)) < ?)
+                     OR (account_id = ? AND COALESCE(DATE(date_closed), DATE(created_at)) >= ?))
+                 GROUP BY COALESCE(DATE(date_closed), DATE(created_at))
+                 ORDER BY trade_date ASC";
+    if (!($stmt = mysqli_prepare($conn, $dailySql))) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Failed to prepare combined daily PnL query: ' . mysqli_error($conn)]);
+        mysqli_close($conn);
+        exit;
+    }
+    mysqli_stmt_bind_param($stmt, 'isis', $combined['legacy_id'], $combined['cutoff'], $combined['current_id'], $combined['cutoff']);
+    if (!mysqli_stmt_execute($stmt)) {
+        mysqli_stmt_close($stmt);
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Combined daily PnL query failed: ' . mysqli_error($conn)]);
+        mysqli_close($conn);
+        exit;
+    }
+    $result = mysqli_stmt_get_result($stmt);
+    $daily_series = [];
+    $cumulative = $baseline;
+    while ($row = mysqli_fetch_assoc($result)) {
+        if (($row['trade_date'] ?? null) === null) {
+            continue;
+        }
+        $daily_pnl = (float) ($row['pnl'] ?? 0);
+        $cumulative += $daily_pnl;
+        $daily_series[] = [
+            'date' => $row['trade_date'],
+            'pnl' => $daily_pnl,
+            'cumulative' => $cumulative,
+        ];
+    }
+    mysqli_stmt_close($stmt);
+    mysqli_close($conn);
+
+    echo json_encode([
+        'success' => true,
+        'adjusted_initial_deposit' => $baseline,
+        'daily_series' => $daily_series,
+        'account_id' => $combined['current_id'],
+        'currency' => $combined['currency'],
     ]);
     exit;
 }

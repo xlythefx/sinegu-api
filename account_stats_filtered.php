@@ -47,6 +47,7 @@ $excludedTickers = isset($input['excluded_tickers']) && is_array($input['exclude
     : [];
 
 require_once __DIR__ . '/conn.php';
+require_once __DIR__ . '/combined_master.php';
 
 if (!$conn) {
     ob_clean();
@@ -59,10 +60,20 @@ if (!$conn) {
     exit;
 }
 
+// Combined Master (temporary, prod-only via .env): splice the legacy account's
+// pre-cutoff trades with the current master's post-cutoff trades. Null otherwise.
+$combined = combined_master_for_account($accountId);
+
 // Build WHERE clause for date range
-$whereConditions = ['account_id = ?'];
-$params = [$accountId];
-$types = 'i';
+if ($combined) {
+    $whereConditions = ['((account_id = ? AND DATE(created_at) < ?) OR (account_id = ? AND DATE(created_at) >= ?))'];
+    $params = [$combined['legacy_id'], $combined['cutoff'], $combined['current_id'], $combined['cutoff']];
+    $types = 'isis';
+} else {
+    $whereConditions = ['account_id = ?'];
+    $params = [$accountId];
+    $types = 'i';
+}
 
 if ($dateFrom) {
     $whereConditions[] = 'DATE(created_at) >= ?';
@@ -92,8 +103,10 @@ $whereClause = implode(' AND ', $whereConditions);
 $depositSql = "SELECT COALESCE(initial_deposit, deposit_amount, 0) AS deposit_amount FROM accounts WHERE id = ?";
 $depositStmt = mysqli_prepare($conn, $depositSql);
 $depositAmount = 0.0;
+// In combined mode the timeline starts with the legacy account, so its deposit is the baseline.
+$depositAccountId = $combined ? $combined['legacy_id'] : $accountId;
 if ($depositStmt) {
-    mysqli_stmt_bind_param($depositStmt, 'i', $accountId);
+    mysqli_stmt_bind_param($depositStmt, 'i', $depositAccountId);
     mysqli_stmt_execute($depositStmt);
     $depositResult = mysqli_stmt_get_result($depositStmt);
     if ($depositRow = mysqli_fetch_assoc($depositResult)) {
@@ -236,6 +249,7 @@ echo json_encode([
     'breakdown' => $breakdown,
     'daily_series' => $dailySeries,
     'deposit_amount' => $depositAmount, // Include initial_deposit (or deposit_amount fallback) in response
+    'currency' => $combined ? $combined['currency'] : null, // USD hint when combined (no FX conversion)
 ]);
 
 ob_end_flush();
