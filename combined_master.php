@@ -37,6 +37,19 @@ if (!function_exists('combined_master_config')) {
         if ($on !== 'on' && $on !== 'true' && $on !== '1') {
             return null;
         }
+        // Hard safety net: never activate on the staging/test host (156 / andrea),
+        // even if the flag is mistakenly copied into that server's .env. The .env is
+        // per-VPS so this is belt-and-suspenders, letting 156 be deployed to freely.
+        // Prod (167 / sinegualfamily) is not in this list, so it is unaffected.
+        $host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? ''));
+        $blocked = array_filter(array_map('trim', explode(',', strtolower(
+            (string) env('COMBINED_MASTER_BLOCK_HOSTS', 'andrea-orcelinvest,156.67.30.81')
+        ))));
+        foreach ($blocked as $b) {
+            if ($b !== '' && strpos($host, $b) !== false) {
+                return null;
+            }
+        }
         $legacy   = (int) env('COMBINED_MASTER_LEGACY_ID', 0);
         $current  = (int) env('COMBINED_MASTER_CURRENT_ID', 0);
         $cutoff   = trim((string) env('COMBINED_MASTER_CUTOFF', ''));
