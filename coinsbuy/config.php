@@ -30,8 +30,10 @@ if ($isDevelopment) {
     define('COINSBUY_API_SECRET',   env('COINSBUY_API_SECRET'));
     define('COINSBUY_BASE_URL',     env('COINSBUY_BASE_URL', 'https://v3.api.coinsbuy.com'));
     define('COINSBUY_WEBHOOK_SECRET', env('COINSBUY_WEBHOOK_SECRET'));
-    define('FRONTEND_BASE_URL',     env('FRONTEND_BASE_URL', 'https://sinegualfamily.com'));
-    define('API_BASE_URL',          env('API_BASE_URL', 'https://api.sinegualfamily.com'));
+    // Resolve by the server we are actually running on (IP/host), falling back
+    // to .env on dev — so a copied prod .env can't point staging callbacks at prod.
+    define('FRONTEND_BASE_URL',     app_base_url('frontend', 'FRONTEND_BASE_URL', 'https://sinegualfamily.com'));
+    define('API_BASE_URL',          app_base_url('api', 'API_BASE_URL', 'https://api.sinegualfamily.com'));
     define('COINSBUY_ENVIRONMENT', 'production');
     define('COINSBUY_USD_WALLET_ID_OVERRIDE', env('COINSBUY_USD_WALLET_ID', '287'));
 }

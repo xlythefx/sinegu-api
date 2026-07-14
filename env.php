@@ -65,4 +65,59 @@ if (!function_exists('env')) {
     }
 }
 
+if (!function_exists('app_server_env')) {
+    /**
+     * Detect which deployment this request is running on, by server IP first,
+     * then request host. Mirrors the frontend resolver in
+     * src/hooks/api.ts (`hostToTarget`) so backend-generated URLs — Stripe /
+     * Coinsbuy success, cancel and webhook links — always match the environment
+     * the code is actually running on, even if a .env was copied from another
+     * server.
+     *
+     * @return string 'prod' | 'staging' | 'dev'
+     */
+    function app_server_env() {
+        $ip   = (string) ($_SERVER['SERVER_ADDR'] ?? '');
+        $host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+        // staging = andrea orcel
+        if (strpos($ip, '156.67.30.81') === 0 || strpos($host, 'andrea-orcelinvest') !== false) {
+            return 'staging';
+        }
+        // prod = sinegualerts
+        if (strpos($ip, '167.86.109.159') === 0 || strpos($host, 'sinegualfamily') !== false) {
+            return 'prod';
+        }
+        return 'dev';
+    }
+}
+
+if (!function_exists('app_base_url')) {
+    /**
+     * Environment-correct base URL for backend-generated links.
+     *
+     * @param string $which   'frontend' | 'api'
+     * @param string $envKey  .env key to fall back to on dev / unknown hosts
+     * @param string $default default when the .env key is also absent
+     * @return string
+     */
+    function app_base_url($which, $envKey, $default) {
+        $map = [
+            'staging' => [
+                'frontend' => 'https://andrea-orcelinvest.com',
+                'api'      => 'https://api.andrea-orcelinvest.com',
+            ],
+            'prod' => [
+                'frontend' => 'https://sinegualfamily.com',
+                'api'      => 'https://api.sinegualfamily.com',
+            ],
+        ];
+        $envName = app_server_env();
+        if (isset($map[$envName][$which])) {
+            return $map[$envName][$which];
+        }
+        // dev / unknown host -> honor whatever the local .env says
+        return env($envKey, $default);
+    }
+}
+
 sinegu_load_env();
