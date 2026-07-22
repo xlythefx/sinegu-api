@@ -151,15 +151,16 @@ if ($emailVerified === 0) {
     exit;
 }
 
-// Check if account is active
-if ($user['status'] !== 'active') {
-    $statusMessage = ucfirst($user['status']);
+// Suspended (rejected) accounts are blocked entirely.
+// Pending accounts CAN log in — the frontend gates the brokers page until an
+// admin approves them, so they can still access the rest of the dashboard.
+if ($user['status'] === 'suspended') {
     http_response_code(403);
     echo json_encode([
         'success' => false,
-        'error_code' => 'ACCOUNT_NOT_ACTIVE',
+        'error_code' => 'ACCOUNT_SUSPENDED',
         'status' => $user['status'],
-        'message' => 'Your account is ' . $statusMessage . '. Please wait for approval or contact support.'
+        'message' => 'Your account has been suspended. Please contact support.'
     ]);
     exit;
 }
