@@ -18,7 +18,7 @@ if (empty($uni_id)) {
     exit;
 }
 
-$stmt = mysqli_prepare($conn, "SELECT uni_id, name, email, affiliate_percentage, course_level FROM user_credentials WHERE uni_id = ? LIMIT 1");
+$stmt = mysqli_prepare($conn, "SELECT uni_id, name, email, status, affiliate_percentage, course_level FROM user_credentials WHERE uni_id = ? LIMIT 1");
 if ($stmt) {
     mysqli_stmt_bind_param($stmt, "s", $uni_id);
     mysqli_stmt_execute($stmt);
