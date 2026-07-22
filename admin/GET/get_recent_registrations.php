@@ -39,7 +39,17 @@ if (!$conn) {
 $limit = isset($_GET['limit']) ? min(100, max(1, (int) $_GET['limit'])) : 10;
 $offset = isset($_GET['offset']) ? max(0, (int) $_GET['offset']) : 0;
 
-$count_res = mysqli_query($conn, 'SELECT COUNT(*) AS cnt FROM user_credentials');
+// Optional status filter (pending | active | suspended)
+$allowedStatuses = ['pending', 'active', 'suspended'];
+$statusFilter = isset($_GET['status']) && in_array($_GET['status'], $allowedStatuses, true)
+    ? $_GET['status']
+    : null;
+$whereClause = $statusFilter !== null
+    ? " WHERE uc.status = '" . mysqli_real_escape_string($conn, $statusFilter) . "'"
+    : '';
+
+$countSql = 'SELECT COUNT(*) AS cnt FROM user_credentials uc' . $whereClause;
+$count_res = mysqli_query($conn, $countSql);
 $total = ($count_res && ($cr = mysqli_fetch_assoc($count_res))) ? (int) $cr['cnt'] : 0;
 if ($count_res) {
     mysqli_free_result($count_res);
@@ -56,17 +66,17 @@ if ($chk) {
 
 if ($hasRt) {
     $sql = "
-        SELECT uc.uni_id, uc.name, uc.email, uc.created_at,
+        SELECT uc.uni_id, uc.name, uc.email, uc.status, uc.created_at,
             (SELECT rt.referral_code FROM referral_tracking rt
              WHERE rt.referred_user_uni_id = uc.uni_id
              ORDER BY rt.created_at DESC LIMIT 1) AS referral_code
-        FROM user_credentials uc
+        FROM user_credentials uc" . $whereClause . "
         ORDER BY uc.created_at DESC
         LIMIT " . (int) $limit . ' OFFSET ' . (int) $offset;
 } else {
     $sql = "
-        SELECT uc.uni_id, uc.name, uc.email, uc.created_at, NULL AS referral_code
-        FROM user_credentials uc
+        SELECT uc.uni_id, uc.name, uc.email, uc.status, uc.created_at, NULL AS referral_code
+        FROM user_credentials uc" . $whereClause . "
         ORDER BY uc.created_at DESC
         LIMIT " . (int) $limit . ' OFFSET ' . (int) $offset;
 }
@@ -86,6 +96,7 @@ while ($row = mysqli_fetch_assoc($result)) {
         'uni_id' => $row['uni_id'],
         'name' => $row['name'],
         'email' => $row['email'],
+        'status' => $row['status'],
         'created_at' => $row['created_at'],
         'referral_code' => $row['referral_code'] !== null && $row['referral_code'] !== '' ? $row['referral_code'] : null,
     ];

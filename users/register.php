@@ -107,7 +107,7 @@ $hashed_password = password_hash($password, PASSWORD_DEFAULT);
 $verification_code = str_pad((string) mt_rand(0, 999999), 6, '0', STR_PAD_LEFT);
 $verification_code_expires_at = date('Y-m-d H:i:s', strtotime('+15 minutes'));
 
-$status = 'active';
+$status = 'pending';
 
 // Insert user (email_verified = 0 until they verify). Bind types match user_credentials: uni_id varchar(36), name/email/password varchar(255), status enum, verification_code varchar(6), verification_code_expires_at datetime -> all "s"
 $stmt = mysqli_prepare($conn, "INSERT INTO user_credentials (uni_id, name, email, password, status, email_verified, verification_code, verification_code_expires_at, verification_code_attempts) VALUES (?, ?, ?, ?, ?, 0, ?, ?, 0)");

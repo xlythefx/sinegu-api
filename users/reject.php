@@ -86,15 +86,15 @@ if (!$user) {
     exit;
 }
 
-// Delete user
-$stmt = mysqli_prepare($conn, "DELETE FROM user_credentials WHERE uni_id = ?");
+// Soft reject: mark as suspended (reversible, keeps referral/audit data)
+$stmt = mysqli_prepare($conn, "UPDATE user_credentials SET status = 'suspended', updated_at = NOW() WHERE uni_id = ?");
 if (!$stmt) {
     mysqli_close($conn);
     ob_clean();
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'message' => 'Failed to prepare delete statement',
+        'message' => 'Failed to prepare update statement',
     ]);
     ob_end_flush();
     exit;
@@ -121,7 +121,7 @@ mysqli_close($conn);
 ob_clean();
 echo json_encode([
     'success' => true,
-    'message' => 'User rejected and removed successfully',
+    'message' => 'User rejected (suspended) successfully',
 ]);
 
 ob_end_flush();
