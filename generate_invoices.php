@@ -63,17 +63,19 @@ if ($isCli) {
 } else {
     $invoiceDemoAccounts = false;
     $rawInput = file_get_contents('php://input');
-    if ($rawInput !== false && $rawInput !== '') {
-        $input = json_decode($rawInput, true);
-        if (is_array($input)) {
-            if (isset($input['invoice_demo_accounts'])) {
-                $invoiceDemoAccounts = (bool)$input['invoice_demo_accounts'];
-            }
-            if (isset($input['skip_account_ids']) && is_array($input['skip_account_ids'])) {
-                $skipAccountIds = array_map('intval', $input['skip_account_ids']);
-            }
+    $input = ($rawInput !== false && $rawInput !== '') ? json_decode($rawInput, true) : null;
+    if (is_array($input)) {
+        if (isset($input['invoice_demo_accounts'])) {
+            $invoiceDemoAccounts = (bool)$input['invoice_demo_accounts'];
+        }
+        if (isset($input['skip_account_ids']) && is_array($input['skip_account_ids'])) {
+            $skipAccountIds = array_map('intval', $input['skip_account_ids']);
         }
     }
+    // HTTP callers (the admin UI) must supply the admin password. The CLI branch
+    // is deliberately exempt so the monthly cron keeps running unattended.
+    require_once __DIR__ . '/includes/admin_action_auth.php';
+    requireAdminActionPassword(is_array($input) ? $input : []);
 }
 
 ob_start();

@@ -19,6 +19,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
+// Without this a plain GET (a crawler, a prefetch, a pasted URL) would wipe
+// all Capital.com billing data.
+if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+    exit();
+}
+
 require_once __DIR__ . '/../conn.php';
 
 if (!$conn) {
@@ -29,6 +37,12 @@ if (!$conn) {
     ]);
     exit();
 }
+
+// Destructive: requires the admin password (checked server-side, see the guard).
+$rawInput = file_get_contents('php://input');
+$input = ($rawInput !== false && $rawInput !== '') ? json_decode($rawInput, true) : [];
+require_once __DIR__ . '/../includes/admin_action_auth.php';
+requireAdminActionPassword(is_array($input) ? $input : []);
 
 try {
     // Start transaction

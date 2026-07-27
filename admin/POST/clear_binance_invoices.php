@@ -60,6 +60,13 @@ $isPreview = !empty($input['preview']);
 $resetIds  = !empty($input['reset_ids']);
 $confirm   = isset($input['confirm']) ? trim((string)$input['confirm']) : '';
 
+// Preview only counts rows and is harmless, so it stays open; anything that
+// deletes must present the admin password.
+if (!$isPreview) {
+    require_once __DIR__ . '/../../includes/admin_action_auth.php';
+    requireAdminActionPassword($input);
+}
+
 /**
  * Snapshot of what is in binance_invoices right now.
  */
