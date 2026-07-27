@@ -5,7 +5,14 @@
  *   binance_accounts, binance_pastpositions, binance_positions, binance_transactions
  * Inserts rows into binance_invoices.
  *
- * HWM: derived from the most recent binance_invoices row for each api_key.
+ * Equity: broker truth – binance_accounts.balance + unrealized_pnl, the same figure
+ * the client's dashboard shows. Never reconstructed from transfers + realized PnL.
+ *
+ * HWM: carried from the most recent binance_invoices row, then adjusted by the
+ * billing month's capital flow (deposits raise the mark, withdrawals lower it), so
+ * deposited money is never billed and withdrawing cannot be used to dodge a fee.
+ * Fees are charged on realized + unrealized trading gains only.
+ *
  * Skip check: UNIQUE(api_key, month_year) prevents duplicate runs.
  *
  * POST body (optional JSON):
@@ -72,6 +79,14 @@ if (!$conn) {
 }
 
 /**
+ * SQL expression for the real date of a binance_transactions row.
+ * transaction_time is the Binance transfer time in epoch ms; created_at is only
+ * the time our sync inserted the row (a backfill would stamp every historical
+ * transfer with today's date). Prefer the broker time, fall back to created_at.
+ */
+const BINANCE_TX_DATE = "DATE(COALESCE(FROM_UNIXTIME(transaction_time / 1000), created_at))";
+
+/**
  * Calculate Binance adjusted deposit up to an optional date.
  * DEPOSIT amounts stored as absolute positive; WITHDRAWAL stored as absolute positive.
  * adjusted = initial_deposit + SUM(DEPOSIT) - SUM(WITHDRAWAL)
@@ -81,7 +96,7 @@ function binanceAdjustedDeposit($conn, $apiKey, $initialDeposit, $upToDate = nul
     $dateFilter = '';
     if ($upToDate !== null) {
         $escapedDate = mysqli_real_escape_string($conn, $upToDate);
-        $dateFilter = " AND DATE(created_at) <= '$escapedDate'";
+        $dateFilter = " AND " . BINANCE_TX_DATE . " <= '$escapedDate'";
     }
 
     $depSql = "SELECT COALESCE(SUM(ABS(amount)), 0) AS total
@@ -93,6 +108,7 @@ function binanceAdjustedDeposit($conn, $apiKey, $initialDeposit, $upToDate = nul
     $wdSql = "SELECT COALESCE(SUM(ABS(amount)), 0) AS total
               FROM binance_transactions
               WHERE api_key = '$escapedKey' AND type = 'WITHDRAWAL' $dateFilter";
+    // (date filter above uses the Binance transfer time, not the row insert time)
     $wdRow = mysqli_fetch_assoc(mysqli_query($conn, $wdSql));
     $totalWithdrawals = isset($wdRow['total']) ? (float)$wdRow['total'] : 0.0;
 
@@ -227,11 +243,7 @@ try {
         // Unrealized PnL: read from binance_accounts (broker-reported totalUnrealizedProfit)
         $unrealizedPnl = (float)($account['unrealized_pnl'] ?? 0);
 
-        // Total realized PnL (all time) – for equity calculation
-        $totalRlzRow = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COALESCE(SUM(realized_pnl), 0) AS total FROM binance_pastpositions WHERE api_key = '$escapedKey'"));
-        $totalRealizedPnl = isset($totalRlzRow['total']) ? (float)$totalRlzRow['total'] : 0.0;
-
-        // Billing-month realized PnL
+        // Billing-month realized PnL (from binance_pastpositions – the only realized source)
         $escapedMonthStart = mysqli_real_escape_string($conn, $monthStart);
         $escapedMonthEnd   = mysqli_real_escape_string($conn, $monthEnd);
         $monthRlzRow = mysqli_fetch_assoc(mysqli_query($conn,
@@ -243,18 +255,24 @@ try {
         ));
         $realizedPnl = isset($monthRlzRow['total']) ? (float)$monthRlzRow['total'] : 0.0;
 
-        // Adjusted deposit (cumulative)
+        // Adjusted deposit (cumulative) – net capital the client has put in.
+        // Only used as the starting benchmark for a first invoice, never for equity.
         $adjustedDepositAmount = binanceAdjustedDeposit($conn, $apiKey, $initialDeposit);
 
-        // Equity = adjusted_deposit + unrealized_pnl + total_realized_pnl
-        $equity = $adjustedDepositAmount + $unrealizedPnl + $totalRealizedPnl;
+        // Equity = broker truth, identical to what the dashboard shows the client
+        // (users/get_binance_account_data.php: balance + unrealized_pnl).
+        // It is NOT reconstructed from transfers + realized PnL: binance_transactions
+        // holds wallet transfers only, so commissions and funding fees never land in
+        // the DB and a reconstruction always drifts above the real wallet.
+        $equity = $balance + $unrealizedPnl;
 
         // Billing-month capital flow (deposits positive, withdrawals negative – amounts stored absolute)
         $depFlowRow = mysqli_fetch_assoc(mysqli_query($conn,
             "SELECT COALESCE(SUM(ABS(amount)), 0) AS total
              FROM binance_transactions
              WHERE api_key = '$escapedKey' AND type = 'DEPOSIT'
-             AND DATE(created_at) >= '$escapedMonthStart' AND DATE(created_at) <= '$escapedMonthEnd'"
+             AND " . BINANCE_TX_DATE . " >= '$escapedMonthStart'
+             AND " . BINANCE_TX_DATE . " <= '$escapedMonthEnd'"
         ));
         $monthDeposits = isset($depFlowRow['total']) ? (float)$depFlowRow['total'] : 0.0;
 
@@ -262,75 +280,61 @@ try {
             "SELECT COALESCE(SUM(ABS(amount)), 0) AS total
              FROM binance_transactions
              WHERE api_key = '$escapedKey' AND type = 'WITHDRAWAL'
-             AND DATE(created_at) >= '$escapedMonthStart' AND DATE(created_at) <= '$escapedMonthEnd'"
+             AND " . BINANCE_TX_DATE . " >= '$escapedMonthStart'
+             AND " . BINANCE_TX_DATE . " <= '$escapedMonthEnd'"
         ));
         $monthWithdrawals = isset($wdFlowRow['total']) ? (float)$wdFlowRow['total'] : 0.0;
 
         // Capital flow: net (deposits positive, withdrawals as negative because stored absolute)
         $capitalFlow = $monthDeposits - $monthWithdrawals;
 
-        // HWM logic (same algorithm as generate_invoices.php)
+        // ---- HWM logic ----------------------------------------------------
+        // The mark moves with capital: a deposit raises it by the deposit, a
+        // withdrawal lowers it by the withdrawal. That way a deposit can never
+        // by itself push the account "above the mark" (no fee on deposited
+        // money), and a client cannot dodge fees by withdrawing before month end.
+        // Fees are charged only on real trading gains — realized + unrealized.
         $shouldChargeFees    = false;
         $hwmBefore           = 0.0;
-        $hwmAfter            = 0.0;
         $newRealizedProfit   = 0.0;
         $newUnrealizedProfit = 0.0;
-        $performanceEquity   = $equity;
+        $tradingProfit       = $realizedPnl + $unrealizedPnl;
 
         if ($isFirstInvoice) {
-            $hwm = ($initialDeposit > 0) ? $initialDeposit : $adjustedDepositAmount;
-            $hwmBefore = $hwm;
-            $performanceEquity = $equity;
-
-            if ($equity > $hwm) {
-                $shouldChargeFees    = true;
-                $newRealizedProfit   = max(0, $realizedPnl);
-                $newUnrealizedProfit = max(0, $unrealizedPnl);
-                $hwmAfter = max($hwm, $equity);
-            } elseif ($capitalFlow < 0 && $realizedPnl > 0 && $unrealizedPnl > 0) {
-                $shouldChargeFees    = true;
-                $newRealizedProfit   = max(0, $realizedPnl);
-                $newUnrealizedProfit = max(0, $unrealizedPnl);
-                $hwmAfter = $equity;
-            } else {
-                $hwmAfter = $hwmBefore;
-            }
+            // No prior mark: the benchmark is all net capital the client has put
+            // in. This month's transfers are already inside the adjusted deposit,
+            // so they must not be added a second time.
+            $hwmBefore   = $adjustedDepositAmount;
+            $adjustedHwm = $hwmBefore;
         } else {
-            $prevRow       = mysqli_fetch_assoc($prevResult);
-            $previousHWM   = (float)($prevRow['hwm_after']  ?? 0);
-            $previousEquity = (float)($prevRow['equity_end'] ?? 0);
-            $previousMonthYear = $prevRow['month_year'] ?? null;
-            mysqli_free_result($prevResult);
-
-            $hwmBefore = $previousHWM;
-
-            $tradingProfit     = $realizedPnl + $unrealizedPnl;
-            $performanceEquity = $previousEquity + $tradingProfit;
-
-            if ($equity > $hwmBefore) {
-                $shouldChargeFees    = true;
-                $newRealizedProfit   = max(0, $realizedPnl);
-                $newUnrealizedProfit = max(0, $unrealizedPnl);
-                $hwmAfter = $equity;
-            } elseif ($capitalFlow < 0 && $realizedPnl > 0 && $unrealizedPnl > 0) {
-                $shouldChargeFees    = true;
-                $newRealizedProfit   = max(0, $realizedPnl);
-                $newUnrealizedProfit = max(0, $unrealizedPnl);
-                $hwmAfter = $equity;
-            } else {
-                $hwmAfter = $hwmBefore;
-            }
+            $prevRow     = mysqli_fetch_assoc($prevResult);
+            $hwmBefore   = (float)($prevRow['hwm_after'] ?? 0);
+            $adjustedHwm = $hwmBefore + $capitalFlow;
         }
 
-        if ($prevResult && is_resource($prevResult)) {
+        if ($prevResult) {
             mysqli_free_result($prevResult);
         }
+
+        if ($equity > $adjustedHwm) {
+            $shouldChargeFees    = true;
+            $newRealizedProfit   = max(0, $realizedPnl);
+            $newUnrealizedProfit = max(0, $unrealizedPnl);
+        }
+
+        // Peak never moves down on losses, but does follow capital out of the account.
+        $hwmAfter = max($adjustedHwm, $equity);
+
+        // What the account would be worth on trading alone, off the adjusted mark.
+        $performanceEquity = $adjustedHwm + $tradingProfit;
 
         $feeRealized    = $newRealizedProfit   * $realizedFeeRate;
         $feeUnrealized  = $newUnrealizedProfit * $unrealizedFeeRate;
         $totalFee       = $feeRealized + $feeUnrealized;
 
-        $equityStart    = $hwmBefore;
+        // equity_start stores the *adjusted* mark – the threshold the fee decision
+        // was actually made against. hwm_before keeps the raw previous mark.
+        $equityStart    = $adjustedHwm;
         $equityEnd      = $equity;
         $adjustedEquity = $equity;
         $billingStatus  = ($totalFee > 0) ? 'pending' : 'paid';
@@ -406,7 +410,9 @@ try {
                 'fee_realized'          => $feeRealized,
                 'fee_unrealized'        => $feeUnrealized,
                 'currency'              => $account['currency_type'] ?? 'USDT',
-                'hwm_before'            => $hwmBefore,
+                // The adjusted mark, so the email explains the fee against the same
+                // threshold the invoice card shows.
+                'hwm_before'            => $adjustedHwm,
                 'equity_end'            => $equityEnd,
                 'deposit_amount'        => $adjustedDepositAmount,
                 'realized_fee_percent'  => $realizedFeePercent,
@@ -435,6 +441,7 @@ try {
             'performance_equity' => $performanceEquity,
             'capital_flow'     => $capitalFlow,
             'hwm_before'       => $hwmBefore,
+            'adjusted_hwm'     => $adjustedHwm,
             'hwm_after'        => $hwmAfter,
             'should_charge_fees' => $shouldChargeFees,
             'email_sent'       => $emailSent,

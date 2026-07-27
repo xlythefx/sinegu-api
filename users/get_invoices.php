@@ -103,7 +103,8 @@ function buildEntry($broker, $billingPeriodId, $accountId, $accountName, $accoun
                     $hwmBefore, $hwmAfter, $equityEnd, $adjustedEquity,
                     $realizedPnl, $unrealizedPnl, $newRealizedProfit, $newUnrealizedProfit,
                     $realizedFee, $unrealizedFee, $totalFee,
-                    $bpStatus, $storedDueDate, $createdAt, $updatedAt, $paidAt) {
+                    $bpStatus, $storedDueDate, $createdAt, $updatedAt, $paidAt,
+                    $adjustedHwm = null) {
 
     $isFirstInvoice = ($hwmBefore == 0.0);
 
@@ -111,7 +112,17 @@ function buildEntry($broker, $billingPeriodId, $accountId, $accountName, $accoun
     $referenceValue = 0.0;
     $referenceLabel = 'Deposit';
 
-    if ($isFirstInvoice) {
+    if ($adjustedHwm !== null) {
+        // Binance: the fee threshold is the previous mark moved by the month's
+        // deposits/withdrawals. Report the gain from *trading* against that mark –
+        // measuring equity_end against the raw previous mark would report a deposit
+        // as performance (a $7.7k top-up read as a 742% gain on a $57 trading month).
+        $referenceValue = $adjustedHwm;
+        $referenceLabel = 'Adjusted Mark';
+        if ($adjustedHwm > 0) {
+            $performanceGainPercent = (($realizedPnl + $unrealizedPnl) / $adjustedHwm) * 100;
+        }
+    } elseif ($isFirstInvoice) {
         if ($initialDeposit > 0) {
             $periodGain = $equityEnd - $initialDeposit;
             $performanceGainPercent = ($periodGain / $initialDeposit) * 100;
@@ -245,6 +256,7 @@ $binanceQuery = "SELECT
     bi.id              AS billing_period_id,
     bi.api_key,
     bi.month_year,
+    bi.equity_start,
     bi.equity_end,
     bi.realized_pnl,
     bi.unrealized_pnl,
@@ -295,7 +307,9 @@ if ($binanceResult) {
             $row['due_date'] ?? '',
             $row['created_at'] ?? '',
             $row['updated_at'] ?? '',
-            null
+            null,
+            // equity_start holds the capital-flow-adjusted mark (Binance only).
+            (float)($row['equity_start'] ?? 0)
         );
     }
     mysqli_free_result($binanceResult);
