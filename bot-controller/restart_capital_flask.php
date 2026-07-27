@@ -3,8 +3,11 @@
  * Hard-restart the Capital.com Flask Windows services via NSSM.
  *
  * Unlike Binance (one service), the Capital.com bot runs as several NSSM
- * services — main app + background fetchers/listener. This restarts them all
- * (`nssm restart <name>` each) on the VPS where this PHP runs under WAMP.
+ * services — main app + background fetchers/listener. This restarts them all on
+ * the VPS where this PHP runs under WAMP, then waits for each to report RUNNING.
+ * Success is judged from the service state, never from nssm's exit code — nssm
+ * reports a false failure whenever a service is still SERVICE_START_PENDING when
+ * it samples. See nssm_lib.php.
  *
  * Service names default to the CapitalFlask-* set and can be overridden per-VPS
  * via .env CAPITAL_SERVICES (comma-separated). Use only for code/config changes
@@ -35,6 +38,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 require_once __DIR__ . '/../env.php';
+require_once __DIR__ . '/nssm_lib.php';
+
+// Six services x (restart + state poll) — give it room.
+@set_time_limit(300);
 
 $default = 'CapitalFlask-Main,CapitalFlask-Listener,CapitalFlask-Balances,CapitalFlask-Positions,CapitalFlask-Transactions,CapitalFlask-Report';
 $services = array_values(array_filter(array_map('trim', explode(',', (string) env('CAPITAL_SERVICES', $default)))));
@@ -47,30 +54,16 @@ if (empty($services)) {
     exit;
 }
 
-// Locate nssm.exe: standard install path first, then PATH fallback.
-$nssmPath = 'C:\\nssm\\nssm.exe';
-if (!is_file($nssmPath)) {
-    $nssmPath = 'nssm';
-}
-
-$results = [];
-$allOk = true;
+$nssmPath = nssm_path();
+$results  = [];
+$allOk    = true;
 
 foreach ($services as $svc) {
-    $cmd = '"' . $nssmPath . '" restart ' . escapeshellarg($svc) . ' 2>&1';
-    $output = [];
-    $exitCode = null;
-    exec($cmd, $output, $exitCode);
-    $ok = ($exitCode === 0);
-    if (!$ok) {
+    $r = nssm_restart_service($nssmPath, $svc, 25);
+    if (!$r['success']) {
         $allOk = false;
     }
-    $results[] = [
-        'service'   => $svc,
-        'success'   => $ok,
-        'exit_code' => $exitCode,
-        'output'    => trim(implode("\n", $output)),
-    ];
+    $results[] = $r;
 }
 
 $restarted = count(array_filter($results, fn($r) => $r['success']));
@@ -81,8 +74,9 @@ http_response_code($allOk ? 200 : 207); // 207 = partial
 echo json_encode([
     'success' => $allOk,
     'message' => $allOk
-        ? "All $total Capital.com services restarted"
-        : "$restarted/$total Capital.com services restarted",
+        ? "All $total Capital.com services restarted and running"
+        : "$restarted/$total Capital.com services running",
+    'env'       => nssm_env_name(),
     'restarted' => $restarted,
     'total'     => $total,
     'services'  => $results,
