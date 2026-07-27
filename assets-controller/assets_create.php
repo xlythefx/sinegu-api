@@ -7,6 +7,14 @@ ob_start();
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 
+// PHP 8.1+ makes mysqli throw by default. A DB-level rejection (e.g. a leftover
+// CHECK constraint on base_size / max_increments) would then fatal and return an
+// empty body, which the dashboard reports as "Unexpected end of JSON input".
+// Turn reporting off so failures fall through to the JSON error responses below.
+if (function_exists('mysqli_report')) {
+    mysqli_report(MYSQLI_REPORT_OFF);
+}
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
