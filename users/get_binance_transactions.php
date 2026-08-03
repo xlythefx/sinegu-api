@@ -49,7 +49,10 @@ if ($count_res && $row = mysqli_fetch_assoc($count_res)) {
 }
 if ($count_res) mysqli_free_result($count_res);
 
-$sql = "SELECT id, api_key, uni_id, type, amount, balance_after, tran_id, currency, transaction_time, info, created_at
+// effective_at: broker-true transfer time (transaction_time is Binance epoch ms;
+// created_at is only when our sync inserted the row — a backfill stamps today).
+$sql = "SELECT id, api_key, uni_id, type, amount, balance_after, tran_id, currency, transaction_time, info, created_at,
+        COALESCE(FROM_UNIXTIME(transaction_time / 1000), created_at) AS effective_at
     FROM binance_transactions
     WHERE uni_id = '{$uni_id}'
     ORDER BY created_at DESC
@@ -75,6 +78,7 @@ while ($row = mysqli_fetch_assoc($result)) {
         'broker_reference' => isset($row['tran_id']) ? (string) $row['tran_id'] : ($row['info'] ?? null),
         'currency' => $row['currency'] ?? 'USDT',
         'created_at' => $row['created_at'],
+        'effective_at' => $row['effective_at'],
     ];
 }
 

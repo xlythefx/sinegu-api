@@ -52,7 +52,10 @@ $adjusted_initial_deposit = 0.0;
 foreach ($accounts as $a) {
     $adjusted_initial_deposit += $a['initial_deposit'];
     $api_key = mysqli_real_escape_string($conn, $a['api_key']);
-    $flowSql = "SELECT COALESCE(SUM(amount), 0) AS net_flow FROM binance_transactions WHERE api_key = '{$api_key}'";
+    // binance_transactions.amount is stored ABSOLUTE with type = DEPOSIT|WITHDRAWAL
+    // (migration 039), so withdrawals must be negated — a plain SUM(amount) would
+    // inflate the baseline.
+    $flowSql = "SELECT COALESCE(SUM(CASE WHEN UPPER(type) = 'WITHDRAWAL' THEN -amount ELSE amount END), 0) AS net_flow FROM binance_transactions WHERE api_key = '{$api_key}'";
     $flowRes = mysqli_query($conn, $flowSql);
     if ($flowRes && $fRow = mysqli_fetch_assoc($flowRes)) {
         $adjusted_initial_deposit += (float) $fRow['net_flow'];
