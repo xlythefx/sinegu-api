@@ -87,8 +87,21 @@ header('Cache-Control: no-store');
 // Serving it as an application/gzip *body* keeps the downloaded file valid.
 $deflate = $useGzip ? deflate_init(ZLIB_ENCODING_GZIP, ['level' => 6]) : null;
 
-$emit = function ($chunk) use ($deflate) {
+// Flush on accumulated volume, NOT per table/statement. Buffering is off (so a
+// multi-GB dump streams instead of piling up in nginx), which means every flush()
+// becomes its own TCP write — and on a long-haul link a flush-per-table turns a
+// small dump into dozens of latency-bound round trips. Measured on the Ubuntu box:
+// schema-only went from >120s to well under a second once flushing was batched.
+$FLUSH_EVERY = 256 * 1024;
+$sinceFlush = 0;
+
+$emit = function ($chunk) use ($deflate, &$sinceFlush, $FLUSH_EVERY) {
     echo $deflate ? deflate_add($deflate, $chunk, ZLIB_NO_FLUSH) : $chunk;
+    $sinceFlush += strlen($chunk);
+    if ($sinceFlush >= $FLUSH_EVERY) {
+        flush();
+        $sinceFlush = 0;
+    }
 };
 $finish = function () use ($deflate) {
     if ($deflate) echo deflate_add($deflate, '', ZLIB_FINISH);
