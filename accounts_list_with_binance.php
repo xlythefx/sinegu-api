@@ -39,9 +39,16 @@ if (!$describe) {
     echo json_encode(['success' => false, 'message' => 'Table accounts not found']);
     exit;
 }
-$allowed = ['id', 'uni_id', 'name', 'api_key', 'broker_accountID', 'email', 'password', 'demo', 'enabled', 'created_at', 'balance', 'unrealized_pnl', 'currency_type', 'deposit_amount', 'initial_deposit', 'equity', 'realized_pnl', 'cst', 'x_security_token', 'session_last_used_at', 'deleted_at'];
+// Safe columns only — `password`, `cst` and `x_security_token` are deliberately
+// absent. See the long note in accounts_list.php; this endpoint is the same data
+// with Binance appended, so the two must be kept in step.
+$allowed = ['id', 'uni_id', 'name', 'api_key', 'broker_accountID', 'email', 'demo', 'enabled', 'created_at', 'balance', 'unrealized_pnl', 'currency_type', 'deposit_amount', 'initial_deposit', 'equity', 'realized_pnl', 'session_last_used_at', 'deleted_at'];
 $cols = [];
+$hasPasswordCol = false;
 while ($dr = mysqli_fetch_assoc($describe)) {
+    if ($dr['Field'] === 'password') {
+        $hasPasswordCol = true;
+    }
     if (in_array($dr['Field'], $allowed, true)) {
         $cols[] = $dr['Field'];
     }
@@ -54,6 +61,10 @@ if (!in_array('id', $cols, true) || !in_array('uni_id', $cols, true)) {
 }
 
 $selectList = implode(', ', $cols);
+// Whether a password is set, never the password itself.
+if ($hasPasswordCol) {
+    $selectList .= ", (password IS NOT NULL AND password <> '') AS has_password";
+}
 $sql = "SELECT {$selectList} FROM accounts ORDER BY (deleted_at IS NULL) DESC, email ASC";
 $result = mysqli_query($conn, $sql);
 if (!$result) {
@@ -77,6 +88,7 @@ while ($row = mysqli_fetch_assoc($result)) {
     }
     $row['demo'] = (int) ($row['demo'] ?? 0);
     $row['enabled'] = (int) ($row['enabled'] ?? 1);
+    $row['has_password'] = (int) ($row['has_password'] ?? 0);
     $row['balance'] = isset($row['balance']) ? (float) $row['balance'] : null;
     $row['realized_pnl'] = $realizedPnl;
     $row['unrealized_pnl'] = isset($row['unrealized_pnl']) ? (float) $row['unrealized_pnl'] : null;
@@ -115,7 +127,9 @@ if ($binanceResult) {
             'name' => $row['name'] ?? 'Binance',
             'email' => '',
             'api_key' => $row['api_key'],
-            'password' => '',
+            // Binance authenticates with api_key + secret_key, and neither the
+            // secret nor any password is ever returned here.
+            'has_password' => 0,
             'demo' => (int) ($row['demo'] ?? 0),
             'enabled' => (int) ($row['enabled'] ?? 1),
             'created_at' => $row['created_at'] ?? '',
