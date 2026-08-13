@@ -58,6 +58,16 @@ if (!$conn) {
     exit;
 }
 
+/**
+ * This endpoint answers "trade_logs doesn't exist yet — run migration 084" with
+ * a JSON hint, which requires a failed query to RETURN FALSE.
+ *
+ * Since PHP 8.1 mysqli defaults to MYSQLI_REPORT_ERROR|MYSQLI_REPORT_STRICT and
+ * throws mysqli_sql_exception instead; `@` does not suppress exceptions. Without
+ * this the pre-migration case is an empty 500 with no explanation at all.
+ */
+mysqli_report(MYSQLI_REPORT_OFF);
+
 // --- Filters -------------------------------------------------------------
 $limit  = isset($_GET['limit']) ? min(200, max(1, (int) $_GET['limit'])) : 50;
 $offset = isset($_GET['offset']) ? max(0, (int) $_GET['offset']) : 0;

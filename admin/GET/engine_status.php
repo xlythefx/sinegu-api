@@ -76,6 +76,19 @@ if ($givenToken !== '' && $expectedToken !== null && $expectedToken !== '') {
 require_once __DIR__ . '/../../includes/service_control.php';
 require_once __DIR__ . '/../../conn.php';
 
+/**
+ * This endpoint reports a missing table or column as null for that one metric —
+ * `trade_logs` before migration 084, `ig_api_logs.is_read` before 085. That only
+ * works if a failed query RETURNS FALSE.
+ *
+ * Since PHP 8.1 mysqli defaults to MYSQLI_REPORT_ERROR|MYSQLI_REPORT_STRICT, so
+ * it throws mysqli_sql_exception instead — and `@` does not suppress exceptions.
+ * Without this line the first query against a not-yet-migrated table takes the
+ * whole page down with an empty 500, which is exactly the situation the page
+ * exists to report on.
+ */
+mysqli_report(MYSQLI_REPORT_OFF);
+
 $dbOk = (bool) $conn;
 
 /** Single scalar, or null on any failure (missing table, bad SQL, no DB). */

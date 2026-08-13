@@ -87,9 +87,13 @@ if ($entry === null) {
 $result = sc_control($entry['unit'], $action);
 
 // Best-effort audit trail; never let a logging failure change the outcome.
+// mysqli throws by default since PHP 8.1 and `@` does not suppress exceptions,
+// so without this an audit-log problem would turn an already-completed
+// start/stop/restart into a 500 — reporting failure for work that succeeded.
 $logged = false;
 require_once __DIR__ . '/../../conn.php';
 if ($conn) {
+    mysqli_report(MYSQLI_REPORT_OFF);
     @require_once __DIR__ . '/../../includes/api_log.php';
     if (function_exists('api_log')) {
         @api_log(

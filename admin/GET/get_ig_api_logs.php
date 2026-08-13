@@ -52,6 +52,13 @@ $filterSource = isset($_GET['source']) && $_GET['source'] !== '' ? trim($_GET['s
 $filterTicker = isset($_GET['ticker']) && $_GET['ticker'] !== '' ? trim($_GET['ticker']) : null;
 $includeRead  = isset($_GET['include_read']) && ($_GET['include_read'] === '1' || $_GET['include_read'] === 'true');
 
+/**
+ * The is_read probe below tolerates a pre-085 schema by letting the query fail.
+ * Since PHP 8.1 mysqli throws instead of returning false, and `@` does not
+ * suppress exceptions — so without this the tolerance does not work at all.
+ */
+mysqli_report(MYSQLI_REPORT_OFF);
+
 // Tolerate a pre-085 schema: skip the is_read filter rather than 500.
 $hasIsRead = false;
 $colRes = @mysqli_query($conn, "SHOW COLUMNS FROM ig_api_logs LIKE 'is_read'");

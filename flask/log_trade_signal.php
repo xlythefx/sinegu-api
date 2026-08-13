@@ -204,6 +204,14 @@ if (!$conn) {
     exit;
 }
 
+/**
+ * The prepare below reports a missing trade_logs table as a JSON hint naming
+ * migration 084, which needs mysqli_prepare to RETURN FALSE. Since PHP 8.1 it
+ * throws mysqli_sql_exception by default instead, which would make this endpoint
+ * answer a bot with an empty 500 rather than a readable reason.
+ */
+mysqli_report(MYSQLI_REPORT_OFF);
+
 $sql = 'INSERT INTO trade_logs
         (broker, action, ticker, success, price, strategy, leverage, category,
          target_count, filled, failed, skipped, details, ts)
