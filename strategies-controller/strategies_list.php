@@ -113,7 +113,14 @@ try {
         ]);
     }
 
-    $sql = 'SELECT strategy_key, enabled, created_at, updated_at FROM strategies ORDER BY strategy_key ASC';
+    // `description` (migration 086) is optional on purpose: a box that has not run the
+    // migration yet must still get its strategy toggles, so we degrade to description=null
+    // rather than 500ing the whole page. strategies_update.php reports the gap explicitly.
+    $hasDescription = in_array('description', $existingColumns, true);
+
+    $sql = $hasDescription
+        ? 'SELECT strategy_key, enabled, description, created_at, updated_at FROM strategies ORDER BY strategy_key ASC'
+        : 'SELECT strategy_key, enabled, created_at, updated_at FROM strategies ORDER BY strategy_key ASC';
     $result = mysqli_query($conn, $sql);
 
     if (!$result) {
@@ -130,13 +137,20 @@ try {
     $strategies = [];
     while ($row = mysqli_fetch_assoc($result)) {
         $row['enabled'] = isset($row['enabled']) ? (int) $row['enabled'] : 0;
+        if (!$hasDescription) {
+            $row['description'] = null;
+        }
         $strategies[] = $row;
     }
 
     mysqli_free_result($result);
     mysqli_close($conn);
 
-    respond_json(200, ['success' => true, 'strategies' => $strategies]);
+    respond_json(200, [
+        'success' => true,
+        'strategies' => $strategies,
+        'supports_description' => $hasDescription,
+    ]);
 } catch (Throwable $e) {
     if (isset($conn) && $conn) {
         mysqli_close($conn);
