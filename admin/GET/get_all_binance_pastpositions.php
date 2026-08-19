@@ -33,9 +33,18 @@ if (!$conn) {
     exit;
 }
 
-$sql = "SELECT id, api_key, uni_id, symbol, realized_pnl, exit_price, closed_at, created_at, strategy, side
-    FROM binance_pastpositions
-    ORDER BY closed_at DESC";
+// The account join supplies the owner label + capital base, so admin views can attribute a
+// trade to a user and express its P&L as a share of that account's balance. `api_key` is a
+// secret and is deliberately never echoed back — `uni_id` is the owner key.
+$sql = "SELECT p.id, p.uni_id, p.symbol, p.realized_pnl, p.exit_price, p.closed_at, p.created_at,
+               p.strategy, p.side,
+               b.name AS account_name, b.balance AS account_balance,
+               b.currency_type AS account_currency,
+               u.email AS account_email
+    FROM binance_pastpositions p
+    LEFT JOIN binance_accounts b ON b.api_key = p.api_key
+    LEFT JOIN user_credentials u ON u.uni_id = p.uni_id
+    ORDER BY p.closed_at DESC";
 
 $result = mysqli_query($conn, $sql);
 
@@ -64,8 +73,11 @@ while ($row = mysqli_fetch_assoc($result)) {
         'created_at' => $row['created_at'] ?? $closedAt,
         'strategy'     => $row['strategy'] ?? null,
         'side'         => $row['side'] ?? null,
-        'account_name' => 'Binance',
-        'account_email'=> null,
+        'account_name' => $row['account_name'] ?: 'Binance',
+        'account_email'=> $row['account_email'] ?? null,
+        'uni_id'       => $row['uni_id'] ?? null,
+        'account_balance' => $row['account_balance'] === null ? null : (float) $row['account_balance'],
+        'account_currency'=> $row['account_currency'] ?? null,
         'broker'       => 'Binance',
     ];
 }

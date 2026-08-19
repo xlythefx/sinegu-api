@@ -35,7 +35,8 @@ if (!$conn) {
 
 $sql = "SELECT p.id, p.account_id, p.ticker, p.close_price, p.pnl, p.closed_at, p.created_at,
                p.strategy, p.side,
-               a.name AS account_name, a.email AS account_email, a.uni_id
+               a.name AS account_name, a.email AS account_email, a.uni_id,
+               a.balance AS account_balance, a.currency_type AS account_currency
     FROM ig_past_positions p
     JOIN ig_accounts a ON a.id = p.account_id
     WHERE a.deleted_at IS NULL
@@ -70,6 +71,11 @@ while ($row = mysqli_fetch_assoc($result)) {
         'side'            => $row['side'] ?? null,
         'account_name'    => $row['account_name'] ?? 'IG.com',
         'account_email'   => $row['account_email'] ?? null,
+        // Owner link + capital base, so admin views can attribute a trade to a user and
+        // express its P&L as a share of that account's balance.
+        'uni_id'          => $row['uni_id'] ?? null,
+        'account_balance' => $row['account_balance'] === null ? null : (float) $row['account_balance'],
+        'account_currency'=> $row['account_currency'] ?? null,
         'broker'          => 'IG.com',
     ];
 }
