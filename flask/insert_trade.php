@@ -2,8 +2,14 @@
 /**
  * Insert a completed trade
  * POST JSON: {"account_id": 1, "ticker": "BTCUSD", "pnl": 100.50, "pnl_percentage": 2.5, "closed_positions": 3, "price": 50000.00}
+ * Optional side: BUY/LONG or SELL/SHORT — see normalize_trade_side() below.
  * Returns JSON: {"success": true, "message": "Trade inserted"}
  */
+
+// Never leak HTML error pages into the JSON body (PHP 8 mysqli throws on SQL errors).
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+ob_start();
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -16,6 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    ob_clean();
     http_response_code(405);
     echo json_encode([
         'success' => false,
@@ -27,6 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $input = json_decode(file_get_contents('php://input'), true);
 
 if (!$input || !isset($input['account_id']) || !isset($input['ticker'])) {
+    ob_clean();
     http_response_code(400);
     echo json_encode([
         'success' => false,
@@ -38,6 +46,7 @@ if (!$input || !isset($input['account_id']) || !isset($input['ticker'])) {
 require_once '../conn.php';
 
 if (!$conn) {
+    ob_clean();
     http_response_code(500);
     echo json_encode([
         'success' => false,
@@ -61,12 +70,40 @@ $strategy = isset($input['strategy']) && $input['strategy'] !== '' && $input['st
     ? mysqli_real_escape_string($conn, $input['strategy'])
     : 'SineguAlerts';
 
+/**
+ * `trades`.`side` is ENUM('BUY','SELL'), but the Capital Flask exit path reports the
+ * direction it closed as LONG/SHORT (`trade_side` in trading_handler.py). Under
+ * STRICT_TRANS_TABLES an out-of-range ENUM value raises error 1265 and aborts the
+ * whole INSERT — so an unmapped side used to cost the entire trade row, not just the
+ * side column. (Pre-cutover, non-strict MySQL silently stored '' instead; that is
+ * where the historical blank-side rows come from.)
+ *
+ * Closing a LONG means the position was a BUY and closing a SHORT means it was a
+ * SELL, so this mapping is lossless. Anything unrecognised returns null and is
+ * omitted from the INSERT, leaving side NULL rather than losing the trade.
+ */
+function normalize_trade_side($raw) {
+    switch (strtoupper(trim((string) $raw))) {
+        case 'BUY':
+        case 'LONG':
+            return 'BUY';
+        case 'SELL':
+        case 'SHORT':
+            return 'SELL';
+        default:
+            return null;
+    }
+}
+
 $side_sql = '';
 $side_val = '';
 if (isset($input['side']) && trim((string) $input['side']) !== '') {
-    $side_esc = mysqli_real_escape_string($conn, strtoupper(trim($input['side'])));
-    $side_sql = ', side';
-    $side_val = ", '{$side_esc}'";
+    $side_norm = normalize_trade_side($input['side']);
+    if ($side_norm !== null) {
+        // Always one of two literals, so there is nothing left to escape.
+        $side_sql = ', side';
+        $side_val = ", '{$side_norm}'";
+    }
 }
 
 $has_deal_ids = $deal_ids !== null && $deal_ids !== '';
@@ -77,16 +114,26 @@ if ($has_deal_ids) {
     $sql = "INSERT INTO trades (account_id, ticker, pnl, pnl_percentage, closed_positions, price, date_closed, time_closed, strategy{$side_sql}, created_at) 
             VALUES ({$account_id}, '{$ticker}', {$pnl}, {$pnl_percentage}, {$closed_positions}, {$price}, '{$date_closed}', '{$time_closed}', '{$strategy}'{$side_val}, NOW())";
 }
-$result = mysqli_query($conn, $sql);
+// PHP 8.1+ mysqli throws instead of returning false, so without this catch the
+// `if (!$result)` handling below never ran — including the 1062 idempotency branch.
+try {
+    $result = mysqli_query($conn, $sql);
+    $errno = $result ? 0 : mysqli_errno($conn);
+    $errmsg = $result ? '' : mysqli_error($conn);
+} catch (\mysqli_sql_exception $e) {
+    $result = false;
+    $errno = $e->getCode();
+    $errmsg = $e->getMessage();
+}
 
 if (!$result) {
-    $errno = mysqli_errno($conn);
     if ($errno == 1062) {
         // Duplicate key: same account_id + deal_ids already inserted (idempotent)
         if (file_exists(__DIR__ . '/../includes/api_log.php')) {
             require_once __DIR__ . '/../includes/api_log.php';
             api_log($conn, 'flask/insert_trade', 'Trade already recorded (idempotent)', 'create', true);
         }
+        ob_clean();
         http_response_code(200);
         echo json_encode([
             'success' => true,
@@ -97,12 +144,13 @@ if (!$result) {
     }
     if (file_exists(__DIR__ . '/../includes/api_log.php')) {
         require_once __DIR__ . '/../includes/api_log.php';
-        api_log($conn, 'flask/insert_trade', 'Insert trade failed: ' . mysqli_error($conn), 'create', false);
+        api_log($conn, 'flask/insert_trade', 'Insert trade failed: ' . $errmsg, 'create', false);
     }
+    ob_clean();
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => mysqli_error($conn)
+        'error' => $errmsg
     ]);
     exit;
 }
@@ -111,6 +159,7 @@ if (file_exists(__DIR__ . '/../includes/api_log.php')) {
     require_once __DIR__ . '/../includes/api_log.php';
     api_log($conn, 'flask/insert_trade', 'Trade inserted successfully', 'create', true);
 }
+ob_clean();
 echo json_encode([
     'success' => true,
     'message' => 'Trade inserted successfully'
