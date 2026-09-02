@@ -79,11 +79,14 @@ if (!function_exists('app_server_env')) {
     function app_server_env() {
         $ip   = (string) ($_SERVER['SERVER_ADDR'] ?? '');
         $host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
-        // staging = andrea orcel
-        if (strpos($ip, '156.67.30.81') === 0 || strpos($host, 'andrea-orcelinvest') !== false) {
+        // staging = nexastaging (ubuntu 182). andrea-orcelinvest is retired and now
+        // returns 410 at the origin, so it is deliberately not matched any more.
+        if (strpos($ip, '191.218.162.182') === 0 || strpos($host, 'nexastaging') !== false) {
             return 'staging';
         }
-        // prod = sinegualerts
+        // prod = sinegualerts. Left matching on the old names on purpose — 167 and
+        // api.sinegualfamily.com are both still served, and app_base_url()'s prod
+        // entry still emits sinegualfamily URLs.
         if (strpos($ip, '167.86.109.159') === 0 || strpos($host, 'sinegualfamily') !== false) {
             return 'prod';
         }
@@ -103,9 +106,13 @@ if (!function_exists('app_base_url')) {
     function app_base_url($which, $envKey, $default) {
         $map = [
             'staging' => [
-                'frontend' => 'https://andrea-orcelinvest.com',
-                'api'      => 'https://api.andrea-orcelinvest.com',
+                'frontend' => 'https://nexastaging.com',
+                'api'      => 'https://api.nexastaging.com',
             ],
+            // Left on sinegualfamily deliberately: api.sinegualfamily.com is still
+            // served on 191 and these URLs are baked into live Stripe/Coinsbuy
+            // redirects. Changing them is a prod concern, not part of the staging
+            // switch to nexastaging.
             'prod' => [
                 'frontend' => 'https://sinegualfamily.com',
                 'api'      => 'https://api.sinegualfamily.com',

@@ -19,7 +19,7 @@ COMBINED_MASTER_LEGACY_ID=1
 COMBINED_MASTER_CURRENT_ID=2
 COMBINED_MASTER_CUTOFF=2026-01-01
 COMBINED_MASTER_CURRENCY=USD
-COMBINED_MASTER_BLOCK_HOSTS=andrea-orcelinvest,156.67.30.81
+COMBINED_MASTER_BLOCK_HOSTS=nexastaging,191.218.162.182,andrea-orcelinvest,156.67.30.81
 ```
 
 - **OFF / keys absent** → plain single-account logic (chart shows the account named `master`).

@@ -31,7 +31,7 @@ if (!function_exists('nssm_env_name')) {
         }
         $ip   = (string) ($_SERVER['SERVER_ADDR'] ?? '');
         $host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
-        if (strpos($ip, '156.67.30.81') === 0 || strpos($host, 'andrea-orcelinvest') !== false) return 'staging';
+        if (strpos($ip, '191.218.162.182') === 0 || strpos($host, 'nexastaging') !== false) return 'staging';
         if (strpos($ip, '167.86.109.159') === 0 || strpos($host, 'sinegualfamily') !== false) return 'prod';
         return 'dev';
     }

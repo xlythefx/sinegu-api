@@ -37,13 +37,18 @@ if (!function_exists('combined_master_config')) {
         if ($on !== 'on' && $on !== 'true' && $on !== '1') {
             return null;
         }
-        // Hard safety net: never activate on the staging/test host (156 / andrea),
-        // even if the flag is mistakenly copied into that server's .env. The .env is
-        // per-VPS so this is belt-and-suspenders, letting 156 be deployed to freely.
-        // Prod (167 / sinegualfamily) is not in this list, so it is unaffected.
+        // Hard safety net: never activate on the staging/test hosts, even if the flag
+        // is mistakenly copied into that server's .env. The .env is per-VPS so this is
+        // belt-and-suspenders, letting staging be deployed to freely. Prod (167 /
+        // sinegualfamily) is not in this list, so it is unaffected.
+        //
+        // nexastaging + 191.218.162.182 are the live staging names since 2026-09-02;
+        // andrea / 156 are kept in the default so an .env that still carries the old
+        // list, or a box reached by an old name, stays blocked rather than silently
+        // switching combined-master on.
         $host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? ''));
         $blocked = array_filter(array_map('trim', explode(',', strtolower(
-            (string) env('COMBINED_MASTER_BLOCK_HOSTS', 'andrea-orcelinvest,156.67.30.81')
+            (string) env('COMBINED_MASTER_BLOCK_HOSTS', 'nexastaging,191.218.162.182,andrea-orcelinvest,156.67.30.81')
         ))));
         foreach ($blocked as $b) {
             if ($b !== '' && strpos($host, $b) !== false) {

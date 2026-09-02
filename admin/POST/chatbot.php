@@ -12,7 +12,7 @@
  *   - get_recent_registrations(env, limit) -> admin/GET/get_recent_registrations.php
  *
  * Environments:  prod  = 167.86.109.159 = https://api.sinegualfamily.com
- *                staging = 156.67.30.81 = https://api.andrea-orcelinvest.com
+ *                staging = 191.218.162.182 = https://api.nexastaging.com
  *
  * Config (.env, gitignored):
  *   OPENAI_API_KEY        (required)
@@ -106,7 +106,7 @@ if (empty($history)) {
 // --- Environment base URLs ---
 function env_base($env) {
     $env = strtolower((string) $env);
-    if ($env === 'staging' || $env === '156') return 'https://api.andrea-orcelinvest.com';
+    if ($env === 'staging' || $env === '182') return 'https://api.nexastaging.com';
     return 'https://api.sinegualfamily.com'; // prod / default
 }
 
@@ -147,7 +147,7 @@ $tools = [
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
-                    'env' => ['type' => 'string', 'enum' => ['prod', 'staging'], 'description' => 'prod = 167 / api.sinegualfamily.com, staging = 156 / api.andrea-orcelinvest.com'],
+                    'env' => ['type' => 'string', 'enum' => ['prod', 'staging'], 'description' => 'prod = 167 / api.sinegualfamily.com, staging = 182 / api.nexastaging.com'],
                 ],
                 'required' => ['env'],
             ],
@@ -259,7 +259,7 @@ $systemPrompt =
     "You are the Sinegu admin Assistant, embedded in the admin dashboard. Today is {$today}.\n" .
     "You help the admin inspect the Sinegu trading platform across two environments:\n" .
     "- PROD: VPS 167.86.109.159, API https://api.sinegualfamily.com\n" .
-    "- STAGING: VPS 156.67.30.81, API https://api.andrea-orcelinvest.com\n" .
+    "- STAGING: VPS 191.218.162.182, API https://api.nexastaging.com\n" .
     "Each VPS runs three Flask bots as Windows NSSM services: 'binance' (Binance), 'capital' (Capital.com), 'ig' (IG).\n" .
     "Use the tools to get real data — never invent numbers or log contents. Call get_stats for counts, " .
     "tail_service_log to read/tail a bot's log, get_recent_registrations for recent sign-ups. " .
