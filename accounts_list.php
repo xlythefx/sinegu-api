@@ -41,9 +41,10 @@ if (!$describe) {
     exit;
 }
 /**
- * Columns safe to return. `password`, `cst` and `x_security_token` are
- * deliberately ABSENT — this endpoint is unauthenticated and is also called by
- * ordinary user pages, so anything listed here is effectively public.
+ * Columns safe to return. `api_key`, `email`, `password`, `cst` and
+ * `x_security_token` are deliberately ABSENT — this endpoint is unauthenticated
+ * and is called by ordinary user pages AND by the public landing page, so
+ * anything listed here is effectively published to the world.
  *
  *   password           stored in plaintext; with api_key + email it is the exact
  *                      triple Capital.com's POST /api/v1/session requires.
@@ -51,12 +52,23 @@ if (!$describe) {
  *                      live Capital.com session tokens — those two headers alone
  *                      authenticate a request (CapitalFlask src/capital_api.py),
  *                      and a background loop keeps them fresh.
+ *   api_key / email    removed for the same reason: they are two thirds of that
+ *                      triple, and returning them here published every customer's
+ *                      key and login email to anyone who opened the marketing
+ *                      site (Index.tsx renders <BotPerformance>, which called
+ *                      this endpoint anonymously just to find the master row).
  *
- * The UI never displayed any of them: it renders "••••••••" from a boolean, so
- * `has_password` below replaces the value. Do not add them back — reveal one
- * account at a time via admin/GET/get_broker_credentials.php instead.
+ * Nothing consumed either field: across the public page, the user dashboard and
+ * alerts pages, AdminOverview / AdminInvoiceHistory / AdminAlerts, and
+ * CapitalFlask src/main.py, the only columns read are id, name, uni_id, balance,
+ * unrealized_pnl, currency_type, hwm_equity and broker_accountID.
+ *
+ * The UI never displayed the secrets either: it renders "••••••••" from a
+ * boolean, so `has_password` below replaces the value. Do not add any of them
+ * back — reveal one account at a time via
+ * admin/GET/get_broker_credentials.php instead.
  */
-$allowed = ['id', 'uni_id', 'name', 'api_key', 'broker_accountID', 'email', 'demo', 'enabled', 'created_at', 'balance', 'unrealized_pnl', 'currency_type', 'deposit_amount', 'initial_deposit', 'equity', 'realized_pnl', 'session_last_used_at', 'deleted_at'];
+$allowed = ['id', 'uni_id', 'name', 'broker_accountID', 'demo', 'enabled', 'created_at', 'balance', 'unrealized_pnl', 'currency_type', 'deposit_amount', 'initial_deposit', 'equity', 'realized_pnl', 'session_last_used_at', 'deleted_at'];
 $cols = [];
 $hasPasswordCol = false;
 while ($dr = mysqli_fetch_assoc($describe)) {
@@ -84,7 +96,9 @@ $selectList = implode(', ', $cols);
 if ($hasPasswordCol) {
     $selectList .= ", (password IS NOT NULL AND password <> '') AS has_password";
 }
-// Admin: return all accounts (active + soft-deleted); active first, then by email
+// All accounts (active + soft-deleted); active first, then by email. `email` is
+// no longer in the select list but is still a column of the table, so ordering by
+// it stays valid and the row order callers see is unchanged.
 $sql = "SELECT {$selectList} FROM accounts ORDER BY (deleted_at IS NULL) DESC, email ASC";
 $result = mysqli_query($conn, $sql);
 
