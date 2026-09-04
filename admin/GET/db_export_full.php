@@ -27,8 +27,14 @@ ignore_user_abort(false);
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Headers: Content-Type, X-Admin-Password');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
+
+// This streams the entire database — every broker API key, secret and password
+// in the system — so it is gated before anything else runs. Password comes from
+// the X-Admin-Password header; see includes/admin_action_auth.php.
+require_once __DIR__ . '/../../includes/admin_action_auth.php';
+requireAdminActionPassword();
 
 function jsonError($message, $detail = null, $code = 400) {
     header('Content-Type: application/json; charset=utf-8');

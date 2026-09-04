@@ -1,9 +1,13 @@
 <?php
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Headers: Content-Type, X-Admin-Password');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 header('Content-Type: application/json; charset=utf-8');
+
+// Dumps and streams the whole database, so it is gated before any work happens.
+require_once __DIR__ . '/../../includes/admin_action_auth.php';
+requireAdminActionPassword();
 
 function sendError($message, $detail = null) {
     echo json_encode(['success' => false, 'message' => $message, 'detail' => $detail]);

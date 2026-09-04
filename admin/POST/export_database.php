@@ -1,9 +1,16 @@
 <?php
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Headers: Content-Type, X-Admin-Password');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 header('Content-Type: application/json; charset=utf-8');
+
+// Writes a full dump to uploads/database-backup and streams it back, so it is
+// gated before any work happens. Nothing in the frontend calls this any more —
+// db_export_full.php superseded it (see that file's docblock) — but it is still
+// routable, so it is guarded rather than left open.
+require_once __DIR__ . '/../../includes/admin_action_auth.php';
+requireAdminActionPassword();
 
 function sendError($message, $detail = null) {
     echo json_encode(['success' => false, 'message' => $message, 'detail' => $detail]);
