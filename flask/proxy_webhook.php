@@ -49,7 +49,12 @@ if (isset($payload['flask_path'])) {
     unset($payload['flask_path']); // Remove from payload before forwarding
 }
 
-$allowedPaths = ['/webhook', '/binance_webhook'];
+// Every receiver nginx actually mounts. IG was missing here long after the
+// /ig_webhook location and the sinegu-ig-* units went live, so every manual IG
+// trade 400'd with "Invalid flask_path" and never reached Flask — the dashboard
+// reported "All orders failed. Check Flask logs." while the IG log stayed empty,
+// because the request died in this file. Adding a receiver means adding it here.
+$allowedPaths = ['/webhook', '/binance_webhook', '/ig_webhook'];
 if (!in_array($flaskPath, $allowedPaths, true)) {
     http_response_code(400);
     echo json_encode([
@@ -65,7 +70,9 @@ $flaskUrl = rtrim($flaskUrl, '/');
 // Remove query parameters (e.g., ?secret=...)
 $flaskUrl = preg_replace('/\?.*$/', '', $flaskUrl);
 // Remove supported webhook path if already present
-$flaskUrl = preg_replace('/\/(?:webhook|binance_webhook)$/', '', $flaskUrl);
+// Keep in step with $allowedPaths — a path missing here survives into $flaskUrl
+// and gets doubled up (…/ig_webhook/ig_webhook) when the path is appended below.
+$flaskUrl = preg_replace('/\/(?:webhook|binance_webhook|ig_webhook)$/', '', $flaskUrl);
 
 // Validate required fields
 if (empty($payload['secret']) || empty($payload['action']) || empty($payload['symbol'])) {
