@@ -151,6 +151,17 @@ $dbFacts = [
         'errors_24h'     => null,
         'last_error'     => null,
     ],
+    'mexc' => [
+        // Twin of the Binance block on the mexc_* tables (migrations 087-090). Nulls
+        // here mean those migrations are not applied on this box yet.
+        'accounts'       => es_int($conn, 'SELECT COUNT(*) FROM mexc_accounts WHERE deleted_at IS NULL'),
+        'open_positions' => es_int($conn, 'SELECT COUNT(*) FROM mexc_positions'),
+        'last_position'  => es_scalar($conn, 'SELECT MAX(created_at) FROM mexc_positions'),
+        'last_trade'     => es_scalar($conn, 'SELECT MAX(created_at) FROM mexc_pastpositions'),
+        'errors_unread'  => null,
+        'errors_24h'     => null,
+        'last_error'     => null,
+    ],
     'telegram' => [
         'accounts'       => null,
         'open_positions' => null,
@@ -180,7 +191,7 @@ if ($conn) {
 // means the migration has not been applied on this box yet.
 $signalStats = [];
 // $b is a literal from this array, never request input — no escaping needed.
-foreach (['capital', 'ig', 'binance'] as $b) {
+foreach (['capital', 'ig', 'binance', 'mexc'] as $b) {
     $signalStats[$b] = [
         'last_signal'  => es_scalar($conn, "SELECT MAX(ts) FROM trade_logs WHERE broker = '$b'"),
         'last_24h'     => es_int($conn, "SELECT COUNT(*) FROM trade_logs WHERE broker = '$b' AND ts >= (NOW() - INTERVAL 24 HOUR)"),
@@ -233,7 +244,7 @@ foreach ($registry as $key => $cfg) {
             $port = $cfg['ports']['webhook'];
             $health['webhook'] = ['port' => $port] + sc_http_probe($port, '/health');
 
-            // Capital and IG expose these; Binance does not (its /health is minimal).
+            // Capital and IG expose these; Binance and MEXC do not (their /health is minimal).
             if ($key === 'capital' || $key === 'ig') {
                 $health['trading_active'] = ['port' => $port] + sc_http_probe($port, '/admin/trading_active');
                 $health['webhook_status'] = ['port' => $port] + sc_http_probe($port, '/admin/webhook/status');

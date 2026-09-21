@@ -147,6 +147,22 @@ if (!function_exists('sc_registry')) {
                     ['unit' => 'sinegu-binance-performance',    'nssm' => null, 'label' => 'Performance report',   'role' => 'worker'],
                 ],
             ],
+            'mexc' => [
+                'label' => 'MEXC',
+                'ports' => [
+                    'webhook' => (int) env('MEXC_WEBHOOK_PORT', 5003),
+                ],
+                'units' => [
+                    // Twin of the Binance bot (binance-flask/mexc/). Born on the Ubuntu
+                    // fleet — it never ran on Windows, so there is no NSSM name at all.
+                    ['unit' => 'sinegu-mexc-main',           'nssm' => null, 'label' => 'Webhook receiver',    'role' => 'main'],
+                    ['unit' => 'sinegu-mexc-balances',       'nssm' => null, 'label' => 'Balances poller',      'role' => 'worker'],
+                    ['unit' => 'sinegu-mexc-positions',      'nssm' => null, 'label' => 'Positions poller',     'role' => 'worker'],
+                    ['unit' => 'sinegu-mexc-transfers',      'nssm' => null, 'label' => 'Transfers poller',     'role' => 'worker'],
+                    ['unit' => 'sinegu-mexc-past-positions', 'nssm' => null, 'label' => 'Past-positions sync',  'role' => 'worker'],
+                    ['unit' => 'sinegu-mexc-performance',    'nssm' => null, 'label' => 'Performance report',   'role' => 'worker'],
+                ],
+            ],
             'telegram' => [
                 'label' => 'Telegram publisher',
                 'ports' => [], // polling bot — no inbound port

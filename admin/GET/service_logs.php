@@ -87,6 +87,7 @@ $parent = dirname(__DIR__, 3);
  */
 $serviceGlobs = [
     'binance'  => ['binance/out/*.log', 'binance/out/service.log', 'binance/headless/*.log', 'binance/*.log'],
+    'mexc'     => ['mexc/out/*.log', 'mexc/out/service.log', 'mexc/headless/*.log', 'mexc/*.log'],
     'capital'  => ['flask/headless/*.log', 'flask/sinegualerts.log', 'flask/*.log'],
     'ig'       => ['ig/headless/*.log', 'ig/*.log'],
     'telegram' => ['telegram-bot/*.log', 'telegram-bot/out/*.log'],
