@@ -36,9 +36,9 @@ if (!$conn) {
 }
 
 $broker = isset($_GET['broker']) ? strtolower(trim((string)$_GET['broker'])) : '';
-if (!in_array($broker, ['capital', 'binance', 'ig'], true)) {
+if (!in_array($broker, ['capital', 'binance', 'ig', 'mexc'], true)) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'broker must be capital, binance, or ig']);
+    echo json_encode(['success' => false, 'message' => 'broker must be capital, binance, ig, or mexc']);
     exit;
 }
 
@@ -72,7 +72,9 @@ if ($broker === 'capital') {
     } else {
         $err = 'Failed to prepare query';
     }
-} elseif ($broker === 'binance') {
+} elseif ($broker === 'binance' || $broker === 'mexc') {
+    // mexc_accounts is a column-for-column twin of binance_accounts (api_key PK, secret_key).
+    $acctTable = $broker === 'mexc' ? 'mexc_accounts' : 'binance_accounts';
     $api_key = isset($_GET['api_key']) ? trim((string)$_GET['api_key']) : '';
     if ($api_key === '') {
         http_response_code(400);
@@ -92,7 +94,7 @@ if ($broker === 'capital') {
                 'secret_key' => $row['secret_key'],
             ];
         } else {
-            $err = 'Binance account not found';
+            $err = ($broker === 'mexc' ? 'MEXC' : 'Binance') . ' account not found';
         }
     } else {
         $err = 'Failed to prepare query';

@@ -169,6 +169,24 @@ try {
     // (c) Capital closed positions count per uni_id (from trades)
     $capitalClosedMap = [];
     $capitalClosedRes = mysqli_query($conn,
+    // (b2) MEXC accounts: presence + earliest created_at per uni_id
+    $mexcAcctMap = [];
+    $mexcAcctRes = mysqli_query($conn,
+        // `deleted_at IS NULL` alone — MySQL 8 rejects a comparison against
+        // '0000-00-00 00:00:00' in strict mode, which took this whole endpoint
+        // down after the 2026-08-12 cutover. A zero date cannot be stored here.
+        "SELECT uni_id, MIN(created_at) AS earliest_at
+         FROM mexc_accounts
+         WHERE deleted_at IS NULL
+         GROUP BY uni_id"
+    );
+    if ($mexcAcctRes) {
+        while ($r = mysqli_fetch_assoc($mexcAcctRes)) {
+            $mexcAcctMap[$r['uni_id']] = $r['earliest_at'];
+        }
+        mysqli_free_result($mexcAcctRes);
+    }
+
         "SELECT a.uni_id, COUNT(*) AS cnt
          FROM trades t
          JOIN accounts a ON a.id = t.account_id
@@ -200,6 +218,20 @@ try {
     // (e) IG accounts: presence + earliest created_at per uni_id
     $igAcctMap = [];
     $igAcctRes = mysqli_query($conn,
+    // (d2) MEXC closed positions count per uni_id (from mexc_pastpositions)
+    $mexcPosMap = [];
+    $mexcPosRes = mysqli_query($conn,
+        "SELECT uni_id, COUNT(*) AS cnt
+         FROM mexc_pastpositions
+         GROUP BY uni_id"
+    );
+    if ($mexcPosRes) {
+        while ($r = mysqli_fetch_assoc($mexcPosRes)) {
+            $mexcPosMap[$r['uni_id']] = (int)$r['cnt'];
+        }
+        mysqli_free_result($mexcPosRes);
+    }
+
         "SELECT uni_id, MIN(created_at) AS earliest_at
          FROM ig_accounts
          WHERE (deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00')
@@ -236,6 +268,7 @@ try {
 
         // Capital closed positions count (from trades table)
         $capitalPosCount = $capitalClosedMap[$userId] ?? 0;
+        $hasMexc    = isset($mexcAcctMap[$userId]);
 
         // Earliest created_at across all brokers this user has accounts in
         $candidates = [];
@@ -245,6 +278,7 @@ try {
         $earliestAt = count($candidates) > 0 ? min($candidates) : null;
 
         $entry['has_capital_accounts']       = $hasCapital;
+        if ($hasMexc    && $mexcAcctMap[$userId])    $candidates[] = $mexcAcctMap[$userId];
         $entry['capital_positions_count']    = $capitalPosCount;
         $entry['has_binance_accounts']       = $hasBinance;
         $entry['binance_positions_count']    = $binancePosMap[$userId] ?? 0;
@@ -253,6 +287,8 @@ try {
         $entry['earliest_account_created_at'] = $earliestAt;
     }
     unset($entry);
+        $entry['has_mexc_accounts']          = $hasMexc;
+        $entry['mexc_positions_count']       = $mexcPosMap[$userId] ?? 0;
     
     // Convert to array for JSON encoding
     $result = array_values($incrementsData);

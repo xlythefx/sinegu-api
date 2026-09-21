@@ -152,3 +152,50 @@ echo json_encode([
     'success' => true,
     'accounts' => $out,
 ]);
+// --- 3) MEXC accounts from `mexc_accounts` (twin of the Binance block above; same columns) ---
+$mexcSql = "SELECT api_key, uni_id, name, balance, initial_deposit, currency_type, created_at, deleted_at, demo, enabled FROM mexc_accounts WHERE uni_id IS NOT NULL AND uni_id != '' ORDER BY (deleted_at IS NULL) DESC, name ASC";
+$mexcResult = mysqli_query($conn, $mexcSql);
+if ($mexcResult) {
+    while ($row = mysqli_fetch_assoc($mexcResult)) {
+        $apiKey = $conn ? mysqli_real_escape_string($conn, $row['api_key']) : $row['api_key'];
+        $realizedPnl = 0.0;
+        $unrealizedPnl = 0.0;
+        $pastSql = "SELECT COALESCE(SUM(realized_pnl), 0) AS total FROM mexc_pastpositions WHERE api_key = '" . $apiKey . "'";
+        $pastRes = mysqli_query($conn, $pastSql);
+        if ($pastRes) {
+            $pastRow = mysqli_fetch_assoc($pastRes);
+            $realizedPnl = ($pastRow && isset($pastRow['total'])) ? (float) $pastRow['total'] : 0.0;
+            mysqli_free_result($pastRes);
+        }
+        $posSql = "SELECT COALESCE(SUM(unrealized_profit), 0) AS total FROM mexc_positions WHERE api_key = '" . $apiKey . "'";
+        $posRes = mysqli_query($conn, $posSql);
+        if ($posRes) {
+            $posRow = mysqli_fetch_assoc($posRes);
+            $unrealizedPnl = ($posRow && isset($posRow['total'])) ? (float) $posRow['total'] : 0.0;
+            mysqli_free_result($posRes);
+        }
+        $out[] = [
+            'id' => 'mexc_' . $row['api_key'],
+            'uni_id' => $row['uni_id'],
+            'name' => $row['name'] ?? 'MEXC',
+            'email' => '',
+            'api_key' => $row['api_key'],
+            // MEXC authenticates with api_key + secret_key, and neither the
+            // secret nor any password is ever returned here.
+            'has_password' => 0,
+            'demo' => (int) ($row['demo'] ?? 0),
+            'enabled' => (int) ($row['enabled'] ?? 1),
+            'created_at' => $row['created_at'] ?? '',
+            'balance' => isset($row['balance']) ? (float) $row['balance'] : null,
+            'realized_pnl' => $realizedPnl,
+            'unrealized_pnl' => $unrealizedPnl,
+            'currency_type' => $row['currency_type'] ?? 'USDT',
+            'deposit_amount' => isset($row['initial_deposit']) ? (float) $row['initial_deposit'] : 0,
+            'initial_deposit' => isset($row['initial_deposit']) ? (float) $row['initial_deposit'] : 0,
+            'deleted_at' => $row['deleted_at'] ?? null,
+            'broker_type' => 'MEXC',
+        ];
+    }
+    mysqli_free_result($mexcResult);
+}
+

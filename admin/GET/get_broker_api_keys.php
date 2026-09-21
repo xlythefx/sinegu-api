@@ -47,10 +47,10 @@ if (!$conn) {
 }
 
 $broker = isset($_GET['broker']) ? strtolower(trim((string) $_GET['broker'])) : '';
-if (!in_array($broker, ['capital', 'binance', 'ig'], true)) {
+if (!in_array($broker, ['capital', 'binance', 'ig', 'mexc'], true)) {
     mysqli_close($conn);
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'broker must be capital, binance, or ig']);
+    echo json_encode(['success' => false, 'message' => 'broker must be capital, binance, ig, or mexc']);
     exit;
 }
 
@@ -63,13 +63,14 @@ if (!in_array($broker, ['capital', 'binance', 'ig'], true)) {
  */
 if ($broker === 'capital') {
     $table = 'accounts';
+ *   mexc_accounts    — same shape as binance_accounts (column-for-column twin)
     $idExpr       = 'a.id';
     $emailExpr    = 'a.email';
     $brokerAcctEx = 'a.broker_accountID';
     $hasSecretEx  = '0';
     $hasPassEx    = "(a.password IS NOT NULL AND a.password <> '')";
-} elseif ($broker === 'binance') {
-    $table = 'binance_accounts';
+} elseif ($broker === 'binance' || $broker === 'mexc') {
+    $table = $broker === 'mexc' ? 'mexc_accounts' : 'binance_accounts';
     $idExpr       = 'NULL';
     $emailExpr    = "''";
     $brokerAcctEx = 'NULL';

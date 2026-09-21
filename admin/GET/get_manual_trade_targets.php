@@ -29,7 +29,7 @@ if (!$conn) {
 }
 
 $broker = isset($_GET['broker']) ? trim((string) $_GET['broker']) : '';
-$allowed = ['Capital.com', 'Binance', 'ig.com'];
+$allowed = ['Capital.com', 'Binance', 'ig.com', 'MEXC'];
 if ($broker !== '' && !in_array($broker, $allowed, true)) {
     mysqli_close($conn);
     http_response_code(400);
@@ -43,6 +43,9 @@ function target_rows_for(mysqli $conn, string $broker): array {
         $emailExpr = "NULLIF(MIN(a.email), '')";
     } elseif ($broker === 'Binance') {
         $table = 'binance_accounts';
+        $emailExpr = "''";
+    } elseif ($broker === 'MEXC') {
+        $table = 'mexc_accounts';
         $emailExpr = "''";
     } else {
         $table = 'ig_accounts';

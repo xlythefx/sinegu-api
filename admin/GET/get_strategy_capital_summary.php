@@ -179,6 +179,51 @@ if (!empty($binKeys)) {
     mysqli_stmt_close($stmt);
 }
 
+// ── MEXC ───────────────────────────────────────────────────────────────────
+$mexc = ['accounts' => 0, 'balance' => 0.0, 'initial_deposit' => 0.0, 'net_flow' => 0.0];
+// Same shape as the Binance block: MEXC stores the instrument in `symbol` too.
+list($mexcTickClause, $mexcTickParams, $mexcTickTypes) = ticker_clause('symbol', $tickers, $mode);
+$mexcKeys = fetch_distinct_ids(
+    $conn,
+    'SELECT DISTINCT api_key FROM mexc_pastpositions WHERE strategy = ? AND api_key IS NOT NULL' . $mexcTickClause,
+    $strategy,
+    $mexcTickParams,
+    $mexcTickTypes
+);
+if (!empty($mexcKeys)) {
+    $ph = implode(',', array_fill(0, count($mexcKeys), '?'));
+    $types = str_repeat('s', count($mexcKeys));
+    $sql = "SELECT api_key, COALESCE(balance, 0) AS balance,
+                   COALESCE(initial_deposit, 0) AS initial_deposit
+            FROM mexc_accounts WHERE api_key IN ($ph)";
+    if (!($stmt = mysqli_prepare($conn, $sql))) fail_out($conn, 'mexc accounts query failed');
+    $refs = []; foreach ($mexcKeys as $k => $v) { $refs[$k] = &$mexcKeys[$k]; }
+    call_user_func_array([$stmt, 'bind_param'], array_merge([$types], $refs));
+    mysqli_stmt_execute($stmt);
+    $r = mysqli_stmt_get_result($stmt);
+    while ($row = mysqli_fetch_assoc($r)) {
+        $mexc['accounts']++;
+        $mexc['balance'] += (float) $row['balance'];
+        $mexc['initial_deposit'] += (float) $row['initial_deposit'];
+
+        $apiKey = $row['api_key'];
+        $txSql = "SELECT COALESCE(SUM(CASE WHEN UPPER(type) = 'DEPOSIT' THEN amount
+                                           WHEN UPPER(type) = 'WITHDRAWAL' THEN -amount
+                                           ELSE 0 END), 0) AS net_flow
+                  FROM mexc_transactions WHERE api_key = ?";
+        if ($txStmt = mysqli_prepare($conn, $txSql)) {
+            mysqli_stmt_bind_param($txStmt, 's', $apiKey);
+            if (mysqli_stmt_execute($txStmt)) {
+                $tr = mysqli_stmt_get_result($txStmt);
+                $tx = mysqli_fetch_assoc($tr);
+                $mexc['net_flow'] += (float) ($tx['net_flow'] ?? 0);
+            }
+            mysqli_stmt_close($txStmt);
+        }
+    }
+    mysqli_stmt_close($stmt);
+}
+
 // ── IG.com ────────────────────────────────────────────────────────────────────
 $ig = ['accounts' => 0, 'balance' => 0.0, 'initial_deposit' => 0.0, 'net_flow' => 0.0];
 list($igTickClause, $igTickParams, $igTickTypes) = ticker_clause('ticker', $tickers, $mode);
@@ -225,12 +270,12 @@ if (!empty($igIds)) {
 
 mysqli_close($conn);
 
-$total_balance = $capital['balance'] + $binance['balance'] + $ig['balance'];
-$total_initial_deposit = $capital['initial_deposit'] + $binance['initial_deposit'] + $ig['initial_deposit'];
-$total_net_flow = $capital['net_flow'] + $binance['net_flow'] + $ig['net_flow'];
+$total_balance = $capital['balance'] + $binance['balance'] + $ig['balance'] + $mexc['balance'];
+$total_initial_deposit = $capital['initial_deposit'] + $binance['initial_deposit'] + $ig['initial_deposit'] + $mexc['initial_deposit'];
+$total_net_flow = $capital['net_flow'] + $binance['net_flow'] + $ig['net_flow'] + $mexc['net_flow'];
 $adjusted = $total_initial_deposit + $total_net_flow;
 $pct_change = $adjusted != 0 ? (($total_balance - $adjusted) / $adjusted) * 100 : 0.0;
-$account_count = $capital['accounts'] + $binance['accounts'] + $ig['accounts'];
+$account_count = $capital['accounts'] + $binance['accounts'] + $ig['accounts'] + $mexc['accounts'];
 
 $broker_block = function ($b) {
     return [
@@ -256,5 +301,6 @@ echo json_encode([
         'Capital.com' => $broker_block($capital),
         'Binance' => $broker_block($binance),
         'IG.com' => $broker_block($ig),
+        'MEXC' => $broker_block($mexc),
     ],
 ]);

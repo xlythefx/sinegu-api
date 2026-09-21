@@ -80,11 +80,13 @@ $stats = [
         'capital' => stat_count($conn, 'SELECT COUNT(*) FROM accounts'),
         'binance' => stat_count($conn, 'SELECT COUNT(*) FROM binance_accounts'),
         'ig'      => stat_count($conn, 'SELECT COUNT(*) FROM ig_accounts'),
+        'mexc'    => stat_count($conn, 'SELECT COUNT(*) FROM mexc_accounts'),
     ],
     'open_positions' => [
         'capital' => stat_count($conn, 'SELECT COUNT(*) FROM positions'),
         'binance' => stat_count($conn, 'SELECT COUNT(*) FROM binance_positions'),
         'ig'      => stat_count($conn, 'SELECT COUNT(*) FROM ig_positions'),
+        'mexc'    => stat_count($conn, 'SELECT COUNT(*) FROM mexc_positions'),
     ],
     'signups_last_7d' => stat_count($conn, 'SELECT COUNT(*) FROM user_credentials WHERE created_at >= (NOW() - INTERVAL 7 DAY)'),
     'signups_today'   => stat_count($conn, 'SELECT COUNT(*) FROM user_credentials WHERE DATE(created_at) = CURDATE()'),
