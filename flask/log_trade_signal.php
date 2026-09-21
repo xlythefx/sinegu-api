@@ -92,9 +92,10 @@ if ($expectedSecret === '' || !hash_equals($expectedSecret, $secret)) {
 
 // --- Validate ------------------------------------------------------------
 $broker = isset($input['broker']) ? strtolower(trim((string) $input['broker'])) : '';
-if (!in_array($broker, ['capital', 'binance', 'ig'], true)) {
+// 'mexc' joined with migration 091 (trade_logs.broker ENUM) for the mexc-flask bot.
+if (!in_array($broker, ['capital', 'binance', 'ig', 'mexc'], true)) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => "broker must be one of: capital, binance, ig"]);
+    echo json_encode(['success' => false, 'error' => "broker must be one of: capital, binance, ig, mexc"]);
     exit;
 }
 
