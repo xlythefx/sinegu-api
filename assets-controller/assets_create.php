@@ -88,6 +88,24 @@ if (!in_array($side, ['LONG', 'SHORT', 'ALL'], true)) {
 }
 $asset_image = isset($data['asset_image']) && $data['asset_image'] !== '' ? trim($data['asset_image']) : null;
 
+// Per-asset leverage (crypto futures). Omitted or blank stores NULL, which the bots
+// read as "no override, use BINANCE_DEFAULT_LEVERAGE" — so a Capital/IG asset, which
+// has no leverage concept here, simply never sets it.
+$leverage = null;
+if (isset($data['leverage']) && $data['leverage'] !== '' && $data['leverage'] !== null) {
+    $leverage = (int) $data['leverage'];
+    if ($leverage < 1 || $leverage > 125) {
+        ob_clean();
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => 'leverage must be between 1 and 125, or empty to use the bot default',
+        ]);
+        ob_end_flush();
+        exit;
+    }
+}
+
 // Validation
 if (empty($ticker)) {
     ob_clean();
@@ -127,7 +145,7 @@ if ($base_size <= 0) {
 }
 
 // Insert new asset
-$insertSql = 'INSERT INTO assets (ticker, type, broker, side, asset_image, max_increments, base_size, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+$insertSql = 'INSERT INTO assets (ticker, type, broker, side, asset_image, max_increments, base_size, leverage, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
 $stmt = mysqli_prepare($conn, $insertSql);
 
 if (!$stmt) {
@@ -143,7 +161,7 @@ if (!$stmt) {
     exit;
 }
 
-mysqli_stmt_bind_param($stmt, 'sssssddi', $ticker, $type, $broker, $side, $asset_image, $max_increments, $base_size, $enabled);
+mysqli_stmt_bind_param($stmt, 'sssssddii', $ticker, $type, $broker, $side, $asset_image, $max_increments, $base_size, $leverage, $enabled);
 
 if (mysqli_stmt_execute($stmt)) {
     $newAssetId = mysqli_insert_id($conn);
@@ -162,6 +180,7 @@ if (mysqli_stmt_execute($stmt)) {
             'asset_image' => $asset_image,
             'max_increments' => (float) $max_increments,
             'base_size' => (float) $base_size,
+            'leverage' => $leverage,
             'enabled' => (int) $enabled,
         ]);
     }

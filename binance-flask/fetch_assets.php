@@ -25,7 +25,7 @@ if (!$conn) {
     exit;
 }
 
-$sql = "SELECT asset_id, ticker, type, broker, max_increments, base_size, enabled, created_at, updated_at FROM assets WHERE enabled = 1 AND LOWER(TRIM(COALESCE(broker, ''))) = 'binance' ORDER BY ticker";
+$sql = "SELECT asset_id, ticker, type, broker, max_increments, base_size, leverage, enabled, created_at, updated_at FROM assets WHERE enabled = 1 AND LOWER(TRIM(COALESCE(broker, ''))) = 'binance' ORDER BY ticker";
 $result = mysqli_query($conn, $sql);
 
 if (!$result) {

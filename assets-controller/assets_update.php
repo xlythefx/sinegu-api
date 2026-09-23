@@ -78,6 +78,27 @@ if (!in_array($side, ['LONG', 'SHORT', 'ALL'], true)) {
 $has_asset_image = array_key_exists('asset_image', $data);
 $asset_image = $has_asset_image && $data['asset_image'] !== '' ? trim((string) $data['asset_image']) : null;
 
+// Per-asset leverage (crypto futures). Absent from the payload = leave the stored
+// value alone; present but blank/0 = clear the override back to "use bot default".
+// A value here is a REQUEST — the bot steps it down to the symbol's real Binance
+// bracket ceiling if it is too high, so an over-ambitious number degrades instead
+// of silently trading at whatever leverage the account happened to hold.
+$has_leverage = array_key_exists('leverage', $data);
+$leverage = null;
+if ($has_leverage && $data['leverage'] !== '' && $data['leverage'] !== null) {
+    $leverage = (int) $data['leverage'];
+    if ($leverage < 1 || $leverage > 125) {
+        ob_clean();
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => 'leverage must be between 1 and 125, or empty to use the bot default',
+        ]);
+        ob_end_flush();
+        exit;
+    }
+}
+
 // Validation
 if ($asset_id < 1) {
     ob_clean();
@@ -157,12 +178,44 @@ if (file_exists(__DIR__ . '/../includes/asset_audit.php')) {
     $asset_audit_old = asset_audit_fetch_snapshot($conn, $asset_id);
 }
 
-// Update asset (include asset_image only if provided in payload, so partial updates don't wipe it)
+// Update asset. asset_image and leverage are only written when the payload actually
+// carries them, so a partial update (e.g. the dashboard's enabled toggle, which sends
+// neither) cannot wipe a value the admin set on the full edit form. The SET clause is
+// assembled rather than branched: with two optional columns a hardcoded statement per
+// combination is four near-identical queries, and a third would make it eight.
+$setParts = ['ticker = ?', 'type = ?', 'broker = ?', 'side = ?'];
+$types = 'ssss';
+$values = [$ticker, $type, $broker, $side];
+
 if ($has_asset_image) {
-    $updateSql = 'UPDATE assets SET ticker = ?, type = ?, broker = ?, side = ?, asset_image = ?, max_increments = ?, base_size = ?, enabled = ?, updated_at = NOW() WHERE asset_id = ?';
-} else {
-    $updateSql = 'UPDATE assets SET ticker = ?, type = ?, broker = ?, side = ?, max_increments = ?, base_size = ?, enabled = ?, updated_at = NOW() WHERE asset_id = ?';
+    $setParts[] = 'asset_image = ?';
+    $types .= 's';
+    $values[] = $asset_image;
 }
+
+$setParts[] = 'max_increments = ?';
+$setParts[] = 'base_size = ?';
+$types .= 'dd';
+$values[] = $max_increments;
+$values[] = $base_size;
+
+if ($has_leverage) {
+    $setParts[] = 'leverage = ?';
+    // Bound as 'i'; a PHP null binds through as SQL NULL, which is the
+    // "no override, use the bot default" case.
+    $types .= 'i';
+    $values[] = $leverage;
+}
+
+$setParts[] = 'enabled = ?';
+$setParts[] = 'updated_at = NOW()';
+$types .= 'i';
+$values[] = $enabled;
+
+$types .= 'i';
+$values[] = $asset_id;
+
+$updateSql = 'UPDATE assets SET ' . implode(', ', $setParts) . ' WHERE asset_id = ?';
 $stmt = mysqli_prepare($conn, $updateSql);
 
 if (!$stmt) {
@@ -177,11 +230,7 @@ if (!$stmt) {
     exit;
 }
 
-if ($has_asset_image) {
-    mysqli_stmt_bind_param($stmt, 'sssssddii', $ticker, $type, $broker, $side, $asset_image, $max_increments, $base_size, $enabled, $asset_id);
-} else {
-    mysqli_stmt_bind_param($stmt, 'ssssddii', $ticker, $type, $broker, $side, $max_increments, $base_size, $enabled, $asset_id);
-}
+mysqli_stmt_bind_param($stmt, $types, ...$values);
 
 if (mysqli_stmt_execute($stmt)) {
     mysqli_stmt_close($stmt);

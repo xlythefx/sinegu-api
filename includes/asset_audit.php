@@ -24,7 +24,7 @@ if (!function_exists('asset_audit_fetch_snapshot')) {
         }
         $stmt = mysqli_prepare(
             $conn,
-            'SELECT ticker, type, broker, side, asset_image, max_increments, base_size, enabled FROM assets WHERE asset_id = ?'
+            'SELECT ticker, type, broker, side, asset_image, max_increments, base_size, leverage, enabled FROM assets WHERE asset_id = ?'
         );
         if (!$stmt) {
             return null;

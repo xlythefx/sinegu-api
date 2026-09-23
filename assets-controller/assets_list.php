@@ -36,7 +36,7 @@ if (!$conn) {
     exit;
 }
 
-$sql = 'SELECT asset_id, ticker, type, broker, side, asset_image, max_increments, base_size, enabled, created_at, updated_at FROM assets ORDER BY ticker ASC';
+$sql = 'SELECT asset_id, ticker, type, broker, side, asset_image, max_increments, base_size, leverage, enabled, created_at, updated_at FROM assets ORDER BY ticker ASC';
 $result = mysqli_query($conn, $sql);
 
 if (!$result) {
