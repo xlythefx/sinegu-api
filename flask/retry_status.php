@@ -6,6 +6,10 @@
  *   - signal age (how long since created_at)
  *   - next attempt time
  *   - attempt progress (attempt_count / max_attempts)
+ *
+ * ?broker=capital|binance|mexc|ig|all (default 'capital', so the existing Capital view
+ * is unchanged once Binance/MEXC share the table - migration 094). Without the broker
+ * column every row is capital.
  */
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -17,6 +21,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+require_once __DIR__ . '/../includes/retry_queue_schema.php';
+$brokerParam = isset($_GET['broker']) ? strtolower(trim((string) $_GET['broker'])) : '';
+$broker = $brokerParam === 'all' ? 'all' : retry_queue_broker($brokerParam);
+if ($broker === null) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'broker must be one of: all, ' . implode(', ', RETRY_QUEUE_BROKERS)]);
+    exit;
+}
+
+mysqli_report(MYSQLI_REPORT_OFF);
 require_once __DIR__ . '/../conn.php';
 
 if (!$conn) {
@@ -25,9 +39,20 @@ if (!$conn) {
     exit;
 }
 
+$schema = retry_queue_columns($conn);
+if (!$schema['broker'] && $broker !== 'capital' && $broker !== 'all') {
+    // Pre-094: the table only holds capital rows, so any other broker has none.
+    echo json_encode(['success' => true, 'timestamp' => date('Y-m-d H:i:s'), 'broker' => $broker, 'count' => 0, 'retries' => []]);
+    mysqli_close($conn);
+    exit;
+}
+$brokerSelect = $schema['broker'] ? 'broker,' : "'capital' AS broker,";
+$brokerSql = ($schema['broker'] && $broker !== 'all') ? " AND broker='" . $broker . "'" : '';
+
 $sql = "
   SELECT
     id,
+    $brokerSelect
     kind,
     action,
     ticker,
@@ -42,7 +67,7 @@ $sql = "
     last_error,
     TIMESTAMPDIFF(MINUTE, created_at, NOW()) AS age_minutes
   FROM capital_retry_queue
-  WHERE status IN ('pending', 'processing', 'failed', 'needs_review')
+  WHERE status IN ('pending', 'processing', 'failed', 'needs_review')$brokerSql
   ORDER BY next_attempt_at ASC, created_at DESC
 ";
 
@@ -56,7 +81,7 @@ if (!$result) {
 $rows = [];
 while ($row = mysqli_fetch_assoc($result)) {
     // Resolve account names from uni_ids
-    $uni_ids = json_decode($row['target_uni_ids'], true) ?: [];
+    $uni_ids = json_decode((string) ($row['target_uni_ids'] ?? ''), true) ?: [];
     $accounts = [];
     if ($uni_ids) {
         $ids_str = implode(',', array_map('intval', $uni_ids));
@@ -78,6 +103,7 @@ while ($row = mysqli_fetch_assoc($result)) {
 
     $rows[] = [
         'id' => (int) $row['id'],
+        'broker' => $row['broker'],
         'kind' => $row['kind'],
         'action' => $row['action'],
         'ticker' => $row['ticker'],
@@ -96,6 +122,7 @@ while ($row = mysqli_fetch_assoc($result)) {
 echo json_encode([
     'success' => true,
     'timestamp' => date('Y-m-d H:i:s'),
+    'broker' => $broker,
     'count' => count($rows),
     'retries' => $rows,
 ]);

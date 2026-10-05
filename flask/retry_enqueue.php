@@ -14,8 +14,13 @@
  *   "target_uni_ids": ["..."],       // optional JSON array (accounts still pending); omit/[]=all
  *   "is_demo_only": false,           // optional
  *   "max_attempts": 12,              // required (exit=12, entry=4)
- *   "first_delay_sec": 300           // optional: seconds until first retry (default 300)
+ *   "first_delay_sec": 300,          // optional: seconds until first retry (default 300)
+ *   "broker": "capital",             // optional: capital | binance | mexc | ig (default capital; migration 094)
+ *   "payload": { "leverage": 20 },   // optional JSON object of extra job fields (migration 094)
+ *   "leverage": 20                   // optional shorthand, merged into payload
  * }
+ * Without migration 094 only broker=capital is accepted (409 otherwise), and the
+ * insert is the original capital-only statement.
  * Returns: { success, id } or { success:false, error }.
  */
 
@@ -73,11 +78,32 @@ $strategy     = isset($input['strategy']) ? substr((string) $input['strategy'], 
 $is_demo_only = !empty($input['is_demo_only']) ? 1 : 0;
 $first_delay  = isset($input['first_delay_sec']) ? max(0, (int) $input['first_delay_sec']) : 300;
 
+require_once __DIR__ . '/../includes/retry_queue_schema.php';
+$broker = retry_queue_broker($input['broker'] ?? null);
+if ($broker === null) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'broker must be one of: ' . implode(', ', RETRY_QUEUE_BROKERS)]);
+    exit;
+}
+
+$payload = null;
+$payloadArr = (isset($input['payload']) && is_array($input['payload'])) ? $input['payload'] : [];
+if (isset($input['leverage']) && $input['leverage'] !== '' && is_numeric($input['leverage'])) {
+    $payloadArr['leverage'] = (int) $input['leverage'];
+}
+if ($payloadArr) {
+    $payload = json_encode($payloadArr, JSON_INVALID_UTF8_SUBSTITUTE);
+    if ($payload === false) {
+        $payload = null;
+    }
+}
+
 $target_uni_ids = null;
 if (isset($input['target_uni_ids']) && is_array($input['target_uni_ids']) && count($input['target_uni_ids']) > 0) {
     $target_uni_ids = json_encode(array_values($input['target_uni_ids']));
 }
 
+mysqli_report(MYSQLI_REPORT_OFF);
 require_once __DIR__ . '/../conn.php';
 if (!$conn) {
     http_response_code(500);
@@ -85,10 +111,23 @@ if (!$conn) {
     exit;
 }
 
-$sql = "INSERT INTO capital_retry_queue
-        (kind, action, ticker, price, strategy, target_uni_ids, is_demo_only,
-         attempt_count, max_attempts, next_attempt_at, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), 'pending')";
+$cols = retry_queue_columns($conn);
+retry_queue_require_broker_column($conn, $cols, $broker);
+
+if ($cols['broker']) {
+    // Migration 094 applied: store broker (+ payload when that column exists too).
+    $payloadCol = $cols['payload'] ? ', payload' : '';
+    $payloadVal = $cols['payload'] ? ', ?' : '';
+    $sql = "INSERT INTO capital_retry_queue
+            (broker, kind, action, ticker, price, strategy, target_uni_ids$payloadCol, is_demo_only,
+             attempt_count, max_attempts, next_attempt_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?$payloadVal, ?, 0, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), 'pending')";
+} else {
+    $sql = "INSERT INTO capital_retry_queue
+            (kind, action, ticker, price, strategy, target_uni_ids, is_demo_only,
+             attempt_count, max_attempts, next_attempt_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), 'pending')";
+}
 $stmt = mysqli_prepare($conn, $sql);
 if (!$stmt) {
     http_response_code(500);
@@ -96,12 +135,28 @@ if (!$stmt) {
     mysqli_close($conn);
     exit;
 }
-mysqli_stmt_bind_param(
-    $stmt,
-    'sssdssiii',
-    $kind, $action, $ticker, $price, $strategy, $target_uni_ids, $is_demo_only,
-    $max_attempts, $first_delay
-);
+if ($cols['broker'] && $cols['payload']) {
+    mysqli_stmt_bind_param(
+        $stmt,
+        'ssssdsssiii',
+        $broker, $kind, $action, $ticker, $price, $strategy, $target_uni_ids, $payload, $is_demo_only,
+        $max_attempts, $first_delay
+    );
+} elseif ($cols['broker']) {
+    mysqli_stmt_bind_param(
+        $stmt,
+        'ssssdssiii',
+        $broker, $kind, $action, $ticker, $price, $strategy, $target_uni_ids, $is_demo_only,
+        $max_attempts, $first_delay
+    );
+} else {
+    mysqli_stmt_bind_param(
+        $stmt,
+        'sssdssiii',
+        $kind, $action, $ticker, $price, $strategy, $target_uni_ids, $is_demo_only,
+        $max_attempts, $first_delay
+    );
+}
 $ok = mysqli_stmt_execute($stmt);
 $id = $ok ? mysqli_insert_id($conn) : 0;
 mysqli_stmt_close($stmt);
@@ -113,5 +168,5 @@ if (!$ok) {
     exit;
 }
 
-echo json_encode(['success' => true, 'id' => $id]);
+echo json_encode(['success' => true, 'id' => $id, 'broker' => $broker]);
 mysqli_close($conn);

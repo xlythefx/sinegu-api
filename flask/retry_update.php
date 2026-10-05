@@ -10,7 +10,8 @@
  *   "outcome": "reschedule",    // required: "executed" | "reschedule" | "failed"
  *   "delay_sec": 300,           // reschedule only: seconds until next attempt (default 300)
  *   "target_uni_ids": ["..."],  // reschedule only: accounts still pending (narrows the retry)
- *   "last_error": "..."         // optional
+ *   "last_error": "...",        // optional
+ *   "broker": "capital"         // optional (default 'capital'; migration 094): the row must belong to it
  * }
  *
  * On "reschedule": attempt_count++ and, if that reaches max_attempts, the row is
@@ -61,6 +62,15 @@ if ($id < 1 || !in_array($outcome, ['executed', 'reschedule', 'failed'], true)) 
 }
 $last_error = isset($input['last_error']) ? (string) $input['last_error'] : null;
 
+require_once __DIR__ . '/../includes/retry_queue_schema.php';
+$broker = retry_queue_broker($input['broker'] ?? null);
+if ($broker === null) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'broker must be one of: ' . implode(', ', RETRY_QUEUE_BROKERS)]);
+    exit;
+}
+
+mysqli_report(MYSQLI_REPORT_OFF);
 require_once __DIR__ . '/../conn.php';
 if (!$conn) {
     http_response_code(500);
@@ -68,12 +78,17 @@ if (!$conn) {
     exit;
 }
 
+$schema = retry_queue_columns($conn);
+retry_queue_require_broker_column($conn, $schema, $broker);
+// $broker is whitelisted by retry_queue_broker(), so it can be inlined safely.
+$brokerSql = $schema['broker'] ? " AND broker='" . $broker . "'" : '';
+
 if ($outcome === 'executed') {
     $stmt = mysqli_prepare(
         $conn,
         "UPDATE capital_retry_queue
             SET status='executed', last_error=?
-          WHERE id=? AND status='processing'"
+          WHERE id=? AND status='processing'$brokerSql"
     );
     mysqli_stmt_bind_param($stmt, 'si', $last_error, $id);
 } elseif ($outcome === 'failed') {
@@ -81,7 +96,7 @@ if ($outcome === 'executed') {
         $conn,
         "UPDATE capital_retry_queue
             SET status='failed', last_error=?
-          WHERE id=? AND status='processing'"
+          WHERE id=? AND status='processing'$brokerSql"
     );
     mysqli_stmt_bind_param($stmt, 'si', $last_error, $id);
 } else { // reschedule
@@ -100,7 +115,7 @@ if ($outcome === 'executed') {
                 next_attempt_at = DATE_ADD(NOW(), INTERVAL ? SECOND),
                 target_uni_ids = ?,
                 last_error = ?
-          WHERE id=? AND status='processing'"
+          WHERE id=? AND status='processing'$brokerSql"
     );
     mysqli_stmt_bind_param($stmt, 'issi', $delay, $target_uni_ids, $last_error, $id);
 }
