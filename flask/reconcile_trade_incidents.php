@@ -119,6 +119,13 @@ $refreshed = 0;
 $refreshStmt = mysqli_prepare($conn, 'UPDATE trade_incidents SET details = ?, last_seen = NOW() WHERE id = ?');
 
 foreach ($rows as $inc) {
+    // One user can hold several accounts on the same broker; this sweep only saw one
+    // of them, so leave incidents that belong to a different named account alone.
+    $incAccount = isset($inc['account']) ? (string) $inc['account'] : '';
+    if ($account !== null && $account !== '' && $incAccount !== ''
+        && strcasecmp($incAccount, $account) !== 0) {
+        continue;
+    }
     // No symbol = nothing to check against the positions list; leave it for a human.
     if ($inc['symbol'] === null || $inc['symbol'] === '') {
         continue;
