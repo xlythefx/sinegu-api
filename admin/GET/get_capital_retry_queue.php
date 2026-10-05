@@ -40,7 +40,14 @@ $searchQ = isset($_GET['q']) && $_GET['q'] !== '' ? trim($_GET['q']) : null;
 $filterStatus = isset($_GET['status']) && $_GET['status'] !== '' && $_GET['status'] !== 'all'
     ? trim($_GET['status']) : null;
 
+require_once __DIR__ . '/../../includes/retry_queue_schema.php';
+$retryCols = retry_queue_columns($conn);
+
+// Since migration 094 the table also holds Binance/MEXC jobs; this panel is Capital's.
 $where = [];
+if ($retryCols['broker']) {
+    $where[] = "broker = 'capital'";
+}
 if ($filterStatus !== null) {
     $where[] = "status = '" . mysqli_real_escape_string($conn, $filterStatus) . "'";
 }
@@ -60,7 +67,8 @@ $where_sql = count($where) > 0 ? ' WHERE ' . implode(' AND ', $where) : '';
 
 // Status summary across the whole table (ignores current filters).
 $summary = ['pending' => 0, 'processing' => 0, 'executed' => 0, 'failed' => 0, 'needs_review' => 0];
-$summary_res = mysqli_query($conn, "SELECT status, COUNT(*) AS cnt FROM capital_retry_queue GROUP BY status");
+$summary_res = mysqli_query($conn, "SELECT status, COUNT(*) AS cnt FROM capital_retry_queue"
+    . ($retryCols['broker'] ? " WHERE broker = 'capital'" : '') . " GROUP BY status");
 if ($summary_res) {
     while ($r = mysqli_fetch_assoc($summary_res)) {
         $summary[$r['status']] = (int) $r['cnt'];

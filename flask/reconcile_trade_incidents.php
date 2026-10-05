@@ -131,8 +131,11 @@ foreach ($rows as $inc) {
         continue;
     }
 
-    // b) EXIT was sent > 2 min ago and the position is still open -> orphan
-    if ($inc['kind'] === 'exit_pending' && (int) $inc['age_sec'] > 120) {
+    // b) EXIT was sent > grace ago and the position is still open -> orphan.
+    // Capital/IG retry rate-limited exits on a minutes-long cadence (IG requeues 60s,
+    // Capital every 5 min), so give them longer before calling the position orphaned.
+    $orphanGraceSec = in_array($broker, ['capital', 'ig'], true) ? 600 : 120;
+    if ($inc['kind'] === 'exit_pending' && (int) $inc['age_sec'] > $orphanGraceSec) {
         $orphanSide = $inc['side'] !== '' ? $inc['side'] : $pos['side'];
         $orphanSymbol = $inc['symbol'];
         $qtyTxt = $pos['qty'] !== null ? rtrim(rtrim(number_format($pos['qty'], 8, '.', ''), '0'), '.') : '?';
