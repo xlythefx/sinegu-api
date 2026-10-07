@@ -157,7 +157,7 @@ if ($id === null) {
 
 // A terminal failure supersedes the pending/scheduled rows for the same position.
 $superseded = 0;
-if (in_array($kind, ['exit_failed', 'retry_gave_up'], true)) {
+if (in_array($kind, ['exit_failed', 'retry_gave_up', 'waiting_liquidity'], true)) {
     $rows = ti_fetch_active($conn, $broker, $uniId, ['retry_scheduled', 'exit_pending']);
     $ids = [];
     foreach ($rows ?: [] as $r) {

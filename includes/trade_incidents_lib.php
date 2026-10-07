@@ -25,11 +25,11 @@ const TI_STATUSES   = ['open', 'retrying', 'resolved', 'ignored'];
 /** Kinds the positions sweep (and a default op=resolve) can close. */
 const TI_SWEEP_KINDS = [
     'exit_failed', 'exit_partial', 'retry_gave_up', 'retry_scheduled',
-    'exit_pending', 'orphan_position', 'status_unknown',
+    'exit_pending', 'orphan_position', 'status_unknown', 'waiting_liquidity',
 ];
 
 /** Kinds whose rows carry live exposure; the sweep refreshes their qty/upnl. */
-const TI_EXPOSURE_KINDS = ['exit_failed', 'retry_gave_up', 'exit_partial', 'orphan_position'];
+const TI_EXPOSURE_KINDS = ['exit_failed', 'retry_gave_up', 'exit_partial', 'orphan_position', 'waiting_liquidity'];
 
 /** Default severity per kind when the bot did not send a valid one (contract guidance). */
 const TI_DEFAULT_SEVERITY = [
@@ -44,6 +44,9 @@ const TI_DEFAULT_SEVERITY = [
     'exit_pending'       => 'warning',
     'skipped_exit_open'  => 'warning',
     'stale_position_row' => 'warning',
+    // Binance -4131: no counterparty inside the exchange's price band (empty book).
+    // Not retried; the sweep resolves it once the position is gone.
+    'waiting_liquidity'  => 'warning',
 ];
 
 /** Max chars of a dedupe key before it is hashed — leaves room for the "|r<id>" resolve suffix in VARCHAR(191). */
