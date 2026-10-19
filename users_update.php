@@ -30,10 +30,11 @@ ob_clean();
 
 try {
     require_once __DIR__ . '/conn.php';
+    require_once __DIR__ . '/includes/user_types.php';
 
     if (!$conn) {
         throw new Exception('Database connection failed');
-    }                
+    }
 
     $data = json_decode(file_get_contents('php://input'), true);
 
@@ -87,6 +88,54 @@ foreach ($updatableFields as $field => $type) {
     }
 }
 
+    // Account type (migration 095). Outside the generic loop: it is checked against
+    // the one list in includes/user_types.php, and a change to or from tester moves
+    // the user's Binance accounts between signal feeds — refused while they hold a
+    // position, because the other feed's exit would close this feed's entry.
+    $typeUnchanged = false;
+    $feedMoved = false;
+    if (array_key_exists('type', $data)) {
+        $newType = is_string($data['type']) ? trim($data['type']) : '';
+        if (!is_valid_user_type($newType)) {
+            throw new Exception('Invalid type. Must be one of: ' . implode(', ', USER_TYPES));
+        }
+        if (!user_credentials_has_type($conn)) {
+            throw new Exception('Account types are not available yet — run migration 095 first');
+        }
+        $currentType = user_type_of($conn, $uni_id);
+        if ($currentType === null) {
+            throw new Exception('User not found');
+        }
+        if ($newType === $currentType) {
+            $typeUnchanged = true;
+        } else {
+            $feedMoved = $newType === TESTER_USER_TYPE || $currentType === TESTER_USER_TYPE;
+            if ($feedMoved && user_has_open_binance_positions($conn, $uni_id)) {
+                ob_clean();
+                http_response_code(409);
+                echo json_encode([
+                    'success' => false,
+                    'error_code' => 'OPEN_POSITIONS',
+                    'message' => 'This user holds an open Binance position — close it first. '
+                        . 'Switching to or from tester moves their accounts to the other signal feed, '
+                        . 'whose exit would close this position.',
+                ]);
+                ob_end_flush();
+                exit;
+            }
+            $setParts[] = '`type` = ?';
+            $types .= 's';
+            $values[] = $newType;
+        }
+    }
+
+    if (empty($setParts) && $typeUnchanged) {
+        ob_clean();
+        echo json_encode(['success' => true, 'message' => 'User updated successfully', 'affected_rows' => 0]);
+        ob_end_flush();
+        exit;
+    }
+
     if (empty($setParts)) {
         throw new Exception('No fields to update');
     }
@@ -139,11 +188,16 @@ foreach ($updatableFields as $field => $type) {
     $affectedRows = mysqli_stmt_affected_rows($stmt);
     mysqli_stmt_close($stmt);
 
+    // The engine caches accounts (with their feed) for 90 s; drop the cache so the
+    // new feed applies to the next signal. Best effort — a miss only means 90 s.
+    $engineRefreshed = $feedMoved ? refresh_binance_engine_accounts() : null;
+
     ob_clean();
     echo json_encode([
         'success' => true,
         'message' => 'User updated successfully',
-        'affected_rows' => $affectedRows
+        'affected_rows' => $affectedRows,
+        'engine_refreshed' => $engineRefreshed,
     ]);
     ob_end_flush();
     exit;

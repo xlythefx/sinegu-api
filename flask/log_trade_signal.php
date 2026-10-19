@@ -20,6 +20,7 @@
  *   "strategy": "VWAP-Deviation", // optional
  *   "leverage": 25,               // optional
  *   "category": "signal",         // optional: signal | rejected | manual | retry
+ *   "feed": "main",               // optional: main | test (binance test feed); default main
  *   "ts": "2026-08-13 09:12:00",  // optional UTC; defaults to now
  *   "details": [ { account, uni_id, status, reason, error, retryable,
  *                  quantity, fill_price, closed_quantity, sizing }, ... ]
@@ -115,6 +116,13 @@ if ($ticker === '') {
 $category = isset($input['category']) ? strtolower(trim((string) $input['category'])) : 'signal';
 if (!in_array($category, ['signal', 'rejected', 'manual', 'retry'], true)) {
     $category = 'signal';
+}
+
+// Which binance-flask webhook produced the signal. Anything unknown is main, so a
+// typo can never hide a real signal behind the Signal Log's test-feed filter.
+$feed = isset($input['feed']) ? strtolower(trim((string) $input['feed'])) : 'main';
+if (!in_array($feed, ['main', 'test'], true)) {
+    $feed = 'main';
 }
 
 $strategy = isset($input['strategy']) && $input['strategy'] !== ''
@@ -213,7 +221,26 @@ if (!$conn) {
  */
 mysqli_report(MYSQLI_REPORT_OFF);
 
-$sql = 'INSERT INTO trade_logs
+// trade_logs.feed arrives with migration 096; until then the row is written
+// without it (and reads back as main), so the API can land first.
+$hasFeed = false;
+$feedRes = mysqli_query(
+    $conn,
+    "SELECT COUNT(*) AS c FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trade_logs' AND COLUMN_NAME = 'feed'"
+);
+if ($feedRes) {
+    $feedRow = mysqli_fetch_assoc($feedRes);
+    $hasFeed = $feedRow && (int) $feedRow['c'] > 0;
+    mysqli_free_result($feedRes);
+}
+
+$sql = $hasFeed
+    ? 'INSERT INTO trade_logs
+        (broker, action, ticker, success, price, strategy, leverage, category, feed,
+         target_count, filled, failed, skipped, details, ts)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    : 'INSERT INTO trade_logs
         (broker, action, ticker, success, price, strategy, leverage, category,
          target_count, filled, failed, skipped, details, ts)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
@@ -230,24 +257,46 @@ if (!$stmt) {
     exit;
 }
 
-mysqli_stmt_bind_param(
-    $stmt,
-    'sssidsisiiiiss',
-    $broker,
-    $action,
-    $ticker,
-    $success,
-    $price,
-    $strategy,
-    $leverage,
-    $category,
-    $targetCount,
-    $filled,
-    $failed,
-    $skipped,
-    $detailsJson,
-    $ts
-);
+if ($hasFeed) {
+    mysqli_stmt_bind_param(
+        $stmt,
+        'sssidsissiiiiss',
+        $broker,
+        $action,
+        $ticker,
+        $success,
+        $price,
+        $strategy,
+        $leverage,
+        $category,
+        $feed,
+        $targetCount,
+        $filled,
+        $failed,
+        $skipped,
+        $detailsJson,
+        $ts
+    );
+} else {
+    mysqli_stmt_bind_param(
+        $stmt,
+        'sssidsisiiiiss',
+        $broker,
+        $action,
+        $ticker,
+        $success,
+        $price,
+        $strategy,
+        $leverage,
+        $category,
+        $targetCount,
+        $filled,
+        $failed,
+        $skipped,
+        $detailsJson,
+        $ts
+    );
+}
 
 $ok = mysqli_stmt_execute($stmt);
 $logId = $ok ? mysqli_insert_id($conn) : 0;
@@ -265,6 +314,7 @@ echo json_encode([
     'success'   => true,
     'log_id'    => $logId,
     'broker'    => $broker,
+    'feed'      => $feed,
     'filled'    => $filled,
     'skipped'   => $skipped,
     'failed'    => $failed,

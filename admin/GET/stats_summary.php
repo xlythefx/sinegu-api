@@ -50,6 +50,7 @@ if ($expectedToken !== null && $expectedToken !== '') {
 }
 
 require_once __DIR__ . '/../../conn.php';
+require_once __DIR__ . '/../../includes/user_types.php';
 
 if (!$conn) {
     ob_end_clean();
@@ -57,6 +58,10 @@ if (!$conn) {
     echo json_encode(['success' => false, 'message' => 'Database connection failed']);
     exit;
 }
+
+// User figures count customers only — admin / developer / collaborator / tester
+// accounts are internal (user_credentials.type, migration 095).
+$customer = user_credentials_has_type($conn) ? "`type` = 'user'" : '1 = 1';
 
 /** Run a single-value count query; return int on success or null on any failure. */
 function stat_count($conn, $sql) {
@@ -71,10 +76,10 @@ function stat_count($conn, $sql) {
 
 $stats = [
     'users' => [
-        'total'     => stat_count($conn, 'SELECT COUNT(*) FROM user_credentials'),
-        'active'    => stat_count($conn, "SELECT COUNT(*) FROM user_credentials WHERE status = 'active'"),
-        'pending'   => stat_count($conn, "SELECT COUNT(*) FROM user_credentials WHERE status = 'pending'"),
-        'suspended' => stat_count($conn, "SELECT COUNT(*) FROM user_credentials WHERE status = 'suspended'"),
+        'total'     => stat_count($conn, "SELECT COUNT(*) FROM user_credentials WHERE $customer"),
+        'active'    => stat_count($conn, "SELECT COUNT(*) FROM user_credentials WHERE status = 'active' AND $customer"),
+        'pending'   => stat_count($conn, "SELECT COUNT(*) FROM user_credentials WHERE status = 'pending' AND $customer"),
+        'suspended' => stat_count($conn, "SELECT COUNT(*) FROM user_credentials WHERE status = 'suspended' AND $customer"),
     ],
     'accounts' => [
         'capital' => stat_count($conn, 'SELECT COUNT(*) FROM accounts'),
@@ -88,8 +93,8 @@ $stats = [
         'ig'      => stat_count($conn, 'SELECT COUNT(*) FROM ig_positions'),
         'mexc'    => stat_count($conn, 'SELECT COUNT(*) FROM mexc_positions'),
     ],
-    'signups_last_7d' => stat_count($conn, 'SELECT COUNT(*) FROM user_credentials WHERE created_at >= (NOW() - INTERVAL 7 DAY)'),
-    'signups_today'   => stat_count($conn, 'SELECT COUNT(*) FROM user_credentials WHERE DATE(created_at) = CURDATE()'),
+    'signups_last_7d' => stat_count($conn, "SELECT COUNT(*) FROM user_credentials WHERE created_at >= (NOW() - INTERVAL 7 DAY) AND $customer"),
+    'signups_today'   => stat_count($conn, "SELECT COUNT(*) FROM user_credentials WHERE DATE(created_at) = CURDATE() AND $customer"),
 ];
 
 mysqli_close($conn);

@@ -21,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 }
 
 require_once __DIR__ . '/../../conn.php';
+require_once __DIR__ . '/../../includes/user_types.php';
 
 if (!$conn) {
     http_response_code(500);
@@ -53,12 +54,19 @@ function target_rows_for(mysqli $conn, string $broker): array {
     }
 
     $brokerEsc = mysqli_real_escape_string($conn, $broker);
+
+    // Account type, so the Binance test feed can list testers only (and the main
+    // feed leave them out). An aggregate keeps it out of GROUP BY; one row per uni_id.
+    $typeExpr = user_credentials_has_type($conn)
+        ? "COALESCE(MIN(uc.`type`), 'user')"
+        : "'user'";
     $sql = "
         SELECT
             a.uni_id,
             '{$brokerEsc}' AS broker,
             COALESCE(NULLIF(uc.name, ''), NULLIF(MIN(a.name), ''), a.uni_id) AS display_name,
             COALESCE(NULLIF(uc.email, ''), {$emailExpr}) AS email,
+            {$typeExpr} AS user_type,
             COUNT(*) AS account_count,
             SUM(CASE WHEN COALESCE(a.demo, 0) = 1 THEN 1 ELSE 0 END) AS demo_count,
             SUM(CASE WHEN COALESCE(a.demo, 0) = 1 THEN 0 ELSE 1 END) AS live_count
@@ -84,6 +92,7 @@ function target_rows_for(mysqli $conn, string $broker): array {
             'display_name' => $row['display_name'],
             'email' => $row['email'],
             'broker' => $row['broker'],
+            'type' => $row['user_type'],
             'account_count' => (int) $row['account_count'],
             'demo_count' => (int) $row['demo_count'],
             'live_count' => (int) $row['live_count'],

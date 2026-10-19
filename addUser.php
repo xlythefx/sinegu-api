@@ -25,6 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 require_once 'conn.php';
+require_once __DIR__ . '/includes/user_types.php';
 
 $data = json_decode(file_get_contents('php://input'), true);
 
@@ -40,6 +41,7 @@ $email = trim($data['email']);
 $password = $data['password'];
 $confirmPassword = $data['confirmPassword'];
 $status = isset($data['status']) ? trim($data['status']) : 'pending';
+$userType = isset($data['type']) && is_string($data['type']) && trim($data['type']) !== '' ? trim($data['type']) : CUSTOMER_USER_TYPE;
 
 // Validation
 if (empty($name) || empty($email) || empty($password) || empty($confirmPassword)) {
@@ -74,6 +76,17 @@ if (!in_array($status, ['pending', 'active', 'suspended'])) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Invalid status. Must be: pending, active, or suspended']);
     exit;
+}
+
+// Account type validation (migration 095). Without the column every account is a user.
+if (!is_valid_user_type($userType)) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Invalid type. Must be one of: ' . implode(', ', USER_TYPES)]);
+    exit;
+}
+$hasTypeColumn = user_credentials_has_type($conn);
+if (!$hasTypeColumn) {
+    $userType = CUSTOMER_USER_TYPE;
 }
 
 // Check if email already exists (bind type: email varchar(255) -> "s")
@@ -124,7 +137,9 @@ $email_s = (string) $email;
 $hashed_password_s = (string) $hashed_password;
 $status_s = (string) $status;
 
-$insert = mysqli_prepare($conn, "INSERT INTO user_credentials (uni_id, name, email, password, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())");
+$insert = $hasTypeColumn
+    ? mysqli_prepare($conn, "INSERT INTO user_credentials (uni_id, name, email, password, status, `type`, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())")
+    : mysqli_prepare($conn, "INSERT INTO user_credentials (uni_id, name, email, password, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())");
 if (!$insert) {
     ob_clean();
     http_response_code(500);
@@ -132,7 +147,11 @@ if (!$insert) {
     mysqli_close($conn);
     exit;
 }
-mysqli_stmt_bind_param($insert, "sssss", $uni_id_s, $name_s, $email_s, $hashed_password_s, $status_s);
+if ($hasTypeColumn) {
+    mysqli_stmt_bind_param($insert, "ssssss", $uni_id_s, $name_s, $email_s, $hashed_password_s, $status_s, $userType);
+} else {
+    mysqli_stmt_bind_param($insert, "sssss", $uni_id_s, $name_s, $email_s, $hashed_password_s, $status_s);
+}
 
 // Clear any output that might have been generated
 ob_clean();
@@ -151,7 +170,8 @@ if (mysqli_stmt_execute($insert)) {
             'uni_id' => $uni_id,
             'name' => $name,
             'email' => $email,
-            'status' => $status
+            'status' => $status,
+            'type' => $userType
         ]
     ]);
 } else {

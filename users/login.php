@@ -17,6 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 require_once __DIR__ . '/../conn.php';
+require_once __DIR__ . '/../includes/user_types.php';
 
 if (file_exists(__DIR__ . '/../smtp.php')) {
     require_once __DIR__ . '/../smtp.php';
@@ -53,7 +54,7 @@ if (strlen($email) > 255) {
 }
 
 // Check if user exists and get credentials (include email_verified for verification gate)
-$stmt = mysqli_prepare($conn, "SELECT uni_id, name, email, password, status, email_verified FROM user_credentials WHERE email = ?");
+$stmt = mysqli_prepare($conn, "SELECT uni_id, name, email, password, status, email_verified, " . user_type_select($conn) . " FROM user_credentials WHERE email = ?");
 mysqli_stmt_bind_param($stmt, "s", $email);
 mysqli_stmt_execute($stmt);
 $result = mysqli_stmt_get_result($stmt);
@@ -178,7 +179,8 @@ echo json_encode([
         'uni_id' => $user['uni_id'],
         'name' => $user['name'],
         'email' => $user['email'],
-        'status' => $user['status']
+        'status' => $user['status'],
+        'type' => $user['type']
     ]
 ]);
 mysqli_close($conn);

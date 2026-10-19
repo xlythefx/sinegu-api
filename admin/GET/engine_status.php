@@ -190,12 +190,17 @@ if ($conn) {
 // Signal throughput from trade_logs (migration 084). Null across the board just
 // means the migration has not been applied on this box yet.
 $signalStats = [];
+// Main feed only: binance's test feed (/binance_test_webhook, migration 096) is
+// tester traffic, and must never make a silent TradingView feed look alive.
+$mainFeed = es_int($conn, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trade_logs' AND COLUMN_NAME = 'feed'")
+    ? " AND feed = 'main'"
+    : '';
 // $b is a literal from this array, never request input — no escaping needed.
 foreach (['capital', 'ig', 'binance', 'mexc'] as $b) {
     $signalStats[$b] = [
-        'last_signal'  => es_scalar($conn, "SELECT MAX(ts) FROM trade_logs WHERE broker = '$b'"),
-        'last_24h'     => es_int($conn, "SELECT COUNT(*) FROM trade_logs WHERE broker = '$b' AND ts >= (NOW() - INTERVAL 24 HOUR)"),
-        'problems_24h' => es_int($conn, "SELECT COUNT(*) FROM trade_logs WHERE broker = '$b' AND success = 0 AND ts >= (NOW() - INTERVAL 24 HOUR)"),
+        'last_signal'  => es_scalar($conn, "SELECT MAX(ts) FROM trade_logs WHERE broker = '$b'$mainFeed"),
+        'last_24h'     => es_int($conn, "SELECT COUNT(*) FROM trade_logs WHERE broker = '$b'$mainFeed AND ts >= (NOW() - INTERVAL 24 HOUR)"),
+        'problems_24h' => es_int($conn, "SELECT COUNT(*) FROM trade_logs WHERE broker = '$b'$mainFeed AND success = 0 AND ts >= (NOW() - INTERVAL 24 HOUR)"),
     ];
 }
 $signalStats['telegram'] = ['last_signal' => null, 'last_24h' => null, 'problems_24h' => null];

@@ -18,10 +18,10 @@
  *   OPENAI_API_KEY        (required)
  *   CHATBOT_MODEL         (optional, default gpt-4o)
  *   CHATBOT_ADMIN_TOKEN   (optional; forwarded to the read-only tool endpoints)
- *   CHATBOT_ADMIN_EMAILS  (optional, comma-separated; extends the default admin allowlist)
  *
- * Auth: the POST body must include adminEmail in the allowlist (the admin UI is
- *       already email-guarded; this mirrors that server-side to limit key abuse).
+ * Auth: the POST body's adminEmail must belong to an account whose
+ *       user_credentials.type opens the admin portal (includes/user_types.php,
+ *       the same rule as AdminRouteGuard) — limits OpenAI key abuse.
  */
 
 ob_start();
@@ -77,12 +77,22 @@ if (!is_array($body)) {
     respond(400, ['success' => false, 'message' => 'Invalid JSON body']);
 }
 
-// --- Admin email allowlist (mirrors AdminRouteGuard) ---
-$defaultAdmins = ['eliascaffi.ec@gmail.com', 'dimamarko2@gmail.com'];
-$extra = array_filter(array_map('trim', explode(',', (string) env('CHATBOT_ADMIN_EMAILS', ''))));
-$allowed = array_map('strtolower', array_merge($defaultAdmins, $extra));
+// --- Admin check by account type (mirrors AdminRouteGuard) ---
+require_once __DIR__ . '/../../conn.php';
+require_once __DIR__ . '/../../includes/user_types.php';
 $adminEmail = strtolower(trim((string) ($body['adminEmail'] ?? '')));
-if ($adminEmail === '' || !in_array($adminEmail, $allowed, true)) {
+$adminType = null;
+if ($adminEmail !== '' && $conn && user_credentials_has_type($conn)) {
+    $stmt = mysqli_prepare($conn, 'SELECT `type` FROM user_credentials WHERE LOWER(email) = ? LIMIT 1');
+    if ($stmt) {
+        mysqli_stmt_bind_param($stmt, 's', $adminEmail);
+        mysqli_stmt_execute($stmt);
+        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+        mysqli_stmt_close($stmt);
+        $adminType = $row ? (string) $row['type'] : null;
+    }
+}
+if ($adminType === null || !in_array($adminType, ADMIN_PORTAL_TYPES, true)) {
     respond(403, ['success' => false, 'message' => 'Not authorized for the admin Assistant.']);
 }
 

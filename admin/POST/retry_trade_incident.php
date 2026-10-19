@@ -67,6 +67,7 @@ if ($id <= 0) {
 
 mysqli_report(MYSQLI_REPORT_OFF);
 require_once __DIR__ . '/../../conn.php';
+require_once __DIR__ . '/../../includes/user_types.php';
 if (!$conn) {
     ti_json(500, ['success' => false, 'error' => 'Database connection failed']);
 }
@@ -129,6 +130,13 @@ switch ($broker) {
             $isMexc ? 'http://127.0.0.1:5003/mexc_webhook' : 'http://127.0.0.1:5001/binance_webhook');
         $secret = (string) env($isMexc ? 'MEXC_WEBHOOK_SECRET' : 'BINANCE_WEBHOOK_SECRET',
             $isMexc ? 'mexc_bot' : 'binance_bot');
+        // A tester's Binance accounts only answer the test feed: the engine drops
+        // them from every /binance_webhook run, so a close sent there would match no
+        // account. Route it to the test webhook with the test secret instead.
+        if (!$isMexc && user_type_of($conn, $uniId) === TESTER_USER_TYPE) {
+            $url = (string) env('TRADE_RETRY_BINANCE_TEST_URL', 'http://127.0.0.1:5001/binance_test_webhook');
+            $secret = (string) env('BINANCE_TEST_WEBHOOK_SECRET', 'binance_test_bot');
+        }
         // Hedge-mode exits name a side. An incident with no side gets both: closing a
         // side that is already flat is a harmless "already flat" on these bots.
         $actions = $side === 'LONG' ? ['EXIT_LONG'] : ($side === 'SHORT' ? ['EXIT_SHORT'] : ['EXIT_LONG', 'EXIT_SHORT']);

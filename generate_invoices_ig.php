@@ -63,6 +63,7 @@ if ($isCli) {
 ob_start();
 require_once __DIR__ . '/conn.php';
 require_once __DIR__ . '/includes/send_invoice_email.php';
+require_once __DIR__ . '/includes/user_types.php';
 
 if (!$conn) {
     ob_clean();
@@ -194,7 +195,7 @@ try {
 
         // Get user fee percentages
         $escapedUniId = mysqli_real_escape_string($conn, $uniId);
-        $userResult = mysqli_query($conn, "SELECT email, name, realized_percentage, unrealized_percentage FROM user_credentials WHERE uni_id = '$escapedUniId' LIMIT 1");
+        $userResult = mysqli_query($conn, "SELECT email, name, realized_percentage, unrealized_percentage, " . user_type_select($conn) . " FROM user_credentials WHERE uni_id = '$escapedUniId' LIMIT 1");
         if (!$userResult || mysqli_num_rows($userResult) === 0) {
             $results['accounts_skipped']++;
             $results['details'][] = [
@@ -208,6 +209,19 @@ try {
         }
         $userData = mysqli_fetch_assoc($userResult);
         mysqli_free_result($userResult);
+
+        // Only customers are billed: admin / developer / collaborator / tester
+        // accounts are internal (user_credentials.type, migration 095).
+        if (($userData['type'] ?? CUSTOMER_USER_TYPE) !== CUSTOMER_USER_TYPE) {
+            $results['accounts_skipped']++;
+            $results['details'][] = [
+                'api_key'      => $apiKey,
+                'account_name' => $account['name'],
+                'status'       => 'skipped',
+                'reason'       => 'Skipped (user type: ' . $userData['type'] . ' – only customers are billed)',
+            ];
+            continue;
+        }
 
         $realizedFeePercent   = isset($userData['realized_percentage'])   ? (float)$userData['realized_percentage']   : 20.0;
         $unrealizedFeePercent = isset($userData['unrealized_percentage']) ? (float)$userData['unrealized_percentage'] : 30.0;

@@ -34,6 +34,7 @@ if (empty($uni_id)) {
 }
 
 require_once __DIR__ . '/../../conn.php';
+require_once __DIR__ . '/../../includes/user_types.php';
 
 if (!$conn) {
     ob_end_clean();
@@ -42,7 +43,7 @@ if (!$conn) {
     exit;
 }
 
-$userSql = "SELECT uni_id, name, email, status, created_at, updated_at, realized_percentage, unrealized_percentage, affiliate_percentage, course_level, user_profile, user_banner FROM user_credentials WHERE uni_id = ? LIMIT 1";
+$userSql = "SELECT uni_id, name, email, status, " . user_type_select($conn) . ", created_at, updated_at, realized_percentage, unrealized_percentage, affiliate_percentage, course_level, user_profile, user_banner FROM user_credentials WHERE uni_id = ? LIMIT 1";
 $user = null;
 
 if ($stmt = mysqli_prepare($conn, $userSql)) {
@@ -58,6 +59,7 @@ if ($stmt = mysqli_prepare($conn, $userSql)) {
             'name' => $row['name'],
             'email' => $row['email'],
             'status' => $row['status'],
+            'type' => $row['type'],
             'created_at' => $row['created_at'],
             'updated_at' => $row['updated_at'],
             'realized_percentage' => $row['realized_percentage'] !== null ? (float) $row['realized_percentage'] : null,

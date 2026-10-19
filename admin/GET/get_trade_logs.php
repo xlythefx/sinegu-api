@@ -7,6 +7,7 @@
  *   &action=BUY|SELL|EXIT_LONG|...  exact, upper-cased
  *   &ticker=BTCUSD                  exact, upper-cased
  *   &category=signal|rejected|manual|retry
+ *   &feed=main|test                 binance test feed (migration 096); omitted = both
  *   &strategy=<key>
  *   &result=success|problem         success -> success=1, problem -> success=0
  *   &from=YYYY-MM-DD                inclusive, from 00:00:00
@@ -94,6 +95,28 @@ if ($category !== '' && $category !== 'all') {
     $where[] = "category = '" . mysqli_real_escape_string($conn, $category) . "'";
 }
 
+// trade_logs.feed arrives with migration 096; before it every row is main.
+$hasFeed = false;
+$feedRes = @mysqli_query(
+    $conn,
+    "SELECT COUNT(*) AS c FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trade_logs' AND COLUMN_NAME = 'feed'"
+);
+if ($feedRes) {
+    $feedRow = mysqli_fetch_assoc($feedRes);
+    $hasFeed = $feedRow && (int) $feedRow['c'] > 0;
+    mysqli_free_result($feedRes);
+}
+
+$feed = isset($_GET['feed']) ? strtolower(trim((string) $_GET['feed'])) : '';
+if (in_array($feed, ['main', 'test'], true)) {
+    if ($hasFeed) {
+        $where[] = "feed = '" . $feed . "'";
+    } elseif ($feed === 'test') {
+        $where[] = '1 = 0';
+    }
+}
+
 $strategy = isset($_GET['strategy']) ? trim((string) $_GET['strategy']) : '';
 if ($strategy !== '' && strtolower($strategy) !== 'all') {
     $where[] = "strategy = '" . mysqli_real_escape_string($conn, $strategy) . "'";
@@ -161,6 +184,7 @@ $total = $summary['signals'];
 
 // --- Page ----------------------------------------------------------------
 $sql = "SELECT id, broker, action, ticker, success, price, strategy, leverage, category,
+               " . ($hasFeed ? 'feed' : "'main' AS feed") . ",
                target_count, filled, failed, skipped, details, ts, created_at
           FROM trade_logs" . $whereSql . "
          ORDER BY ts DESC, id DESC
@@ -212,6 +236,7 @@ while ($row = mysqli_fetch_assoc($res)) {
         'strategy'     => $row['strategy'],
         'leverage'     => $row['leverage'] === null ? null : (int) $row['leverage'],
         'category'     => $row['category'],
+        'feed'         => $row['feed'],
         'target_count' => (int) $row['target_count'],
         'filled'       => (int) $row['filled'],
         'failed'       => (int) $row['failed'],

@@ -33,14 +33,15 @@ try {
     ob_clean();
     
     require_once __DIR__ . '/conn.php';
+    require_once __DIR__ . '/includes/user_types.php';
 
-    
+
     // Check database connection
     if (!$conn) {
         throw new Exception('Database connection failed');
     }
-    
-    $sql = 'SELECT uni_id, name, email, password, status, realized_percentage, unrealized_percentage, created_at, updated_at FROM user_credentials ORDER BY created_at DESC';
+
+    $sql = 'SELECT uni_id, name, email, password, status, ' . user_type_select($conn) . ', realized_percentage, unrealized_percentage, created_at, updated_at FROM user_credentials ORDER BY created_at DESC';
     $result = mysqli_query($conn, $sql);
 
     if (!$result) {

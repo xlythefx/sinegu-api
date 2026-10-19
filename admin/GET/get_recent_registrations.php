@@ -28,6 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 }
 
 require_once __DIR__ . '/../../conn.php';
+require_once __DIR__ . '/../../includes/user_types.php';
 
 if (!$conn) {
     ob_end_clean();
@@ -44,9 +45,16 @@ $allowedStatuses = ['pending', 'active', 'suspended'];
 $statusFilter = isset($_GET['status']) && in_array($_GET['status'], $allowedStatuses, true)
     ? $_GET['status']
     : null;
-$whereClause = $statusFilter !== null
-    ? " WHERE uc.status = '" . mysqli_real_escape_string($conn, $statusFilter) . "'"
-    : '';
+// Customers only — admin / developer / collaborator / tester accounts are internal
+// (user_credentials.type, migration 095), so they never show as sign-ups.
+$where = [];
+if (user_credentials_has_type($conn)) {
+    $where[] = "uc.`type` = 'user'";
+}
+if ($statusFilter !== null) {
+    $where[] = "uc.status = '" . mysqli_real_escape_string($conn, $statusFilter) . "'";
+}
+$whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
 
 $countSql = 'SELECT COUNT(*) AS cnt FROM user_credentials uc' . $whereClause;
 $count_res = mysqli_query($conn, $countSql);

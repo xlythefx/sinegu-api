@@ -54,7 +54,7 @@ if (isset($payload['flask_path'])) {
 // trade 400'd with "Invalid flask_path" and never reached Flask — the dashboard
 // reported "All orders failed. Check Flask logs." while the IG log stayed empty,
 // because the request died in this file. Adding a receiver means adding it here.
-$allowedPaths = ['/webhook', '/binance_webhook', '/ig_webhook', '/mexc_webhook'];
+$allowedPaths = ['/webhook', '/binance_webhook', '/binance_test_webhook', '/ig_webhook', '/mexc_webhook'];
 if (!in_array($flaskPath, $allowedPaths, true)) {
     http_response_code(400);
     echo json_encode([
@@ -72,7 +72,15 @@ $flaskUrl = preg_replace('/\?.*$/', '', $flaskUrl);
 // Remove supported webhook path if already present
 // Keep in step with $allowedPaths — a path missing here survives into $flaskUrl
 // and gets doubled up (…/ig_webhook/ig_webhook) when the path is appended below.
-$flaskUrl = preg_replace('/\/(?:webhook|binance_webhook|ig_webhook|mexc_webhook)$/', '', $flaskUrl);
+$flaskUrl = preg_replace('/\/(?:webhook|binance_webhook|binance_test_webhook|ig_webhook|mexc_webhook)$/', '', $flaskUrl);
+
+// The Binance test feed (tester accounts only) has its own secret. It is filled
+// in here rather than shipped in the dashboard bundle; whatever the client sent
+// is ignored. Must match binance-flask's BINANCE_TEST_WEBHOOK_SECRET.
+if ($flaskPath === '/binance_test_webhook') {
+    require_once __DIR__ . '/../env.php';
+    $payload['secret'] = (string) env('BINANCE_TEST_WEBHOOK_SECRET', 'binance_test_bot');
+}
 
 // Validate required fields
 if (empty($payload['secret']) || empty($payload['action']) || empty($payload['symbol'])) {
