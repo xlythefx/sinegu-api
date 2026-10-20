@@ -16,10 +16,11 @@
 --                 webhook. See binance-flask CLAUDE.md "Tester type + test feed".
 --
 -- ENUM, so a typo can never be stored. Everyone defaults to 'user'; the seed below
--- promotes the two operators who held admin access through the old email list, so
--- the portal is not locked out the moment this lands. LOWER() because Dima's row is
+-- promotes the operator who held admin access through the old email list, so the
+-- portal is not locked out the moment this lands. LOWER() because Dima's row is
 -- stored with a capital D. The seed only touches rows still at 'user', so re-running
--- it never overwrites a type set later from the Users page.
+-- it never overwrites a type set later from the Users page. (A second operator email
+-- was dropped from the seed on 2026-10-20; it matched no account on any box.)
 --
 -- Idempotent: the column and index are guarded by INFORMATION_SCHEMA checks (MySQL
 -- has no ADD COLUMN IF NOT EXISTS), matching 092/094.
@@ -55,5 +56,5 @@ DEALLOCATE PREPARE stmt;
 
 UPDATE `user_credentials`
 SET `type` = 'admin'
-WHERE LOWER(`email`) IN ('eliascaffi.ec@gmail.com', 'dimamarko2@gmail.com')
+WHERE LOWER(`email`) IN ('dimamarko2@gmail.com')
   AND `type` = 'user';

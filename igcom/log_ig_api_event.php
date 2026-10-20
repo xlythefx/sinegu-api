@@ -138,7 +138,6 @@ if ($send_email) {
     $recipients = [
         ['email' => 'dimamarko2@gmail.com',          'name' => 'Dima'],
         ['email' => 'christian@feature-digital.com', 'name' => 'Christian'],
-        ['email' => 'eliascaffi.ec@gmail.com',       'name' => 'Elias'],
     ];
 
     $smtpPath = __DIR__ . '/../smtp.php';
