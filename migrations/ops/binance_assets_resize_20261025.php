@@ -9,10 +9,11 @@
  *   php binance_assets_resize_20261025.php apply
  *   php binance_assets_resize_20261025.php undo     # put back the values in $ORIGINAL
  *
- * $ORIGINAL is the 56 rows exactly as they stood on 182 right before the change, so
- * undo needs nothing but this file. A row is only written while it still holds what
- * that direction expects (apply: the original, undo: the resized value). A row edited
- * by hand in between is listed and left alone; `undo --force` restores those too.
+ * $ORIGINAL is the 56 rows as they stood on 182 right before the change (one typo
+ * corrected, see #72), so undo needs nothing but this file. A row is only written
+ * while it still holds what that direction expects (apply: the original, undo: the
+ * resized value). A row edited by hand in between is listed and left alone; add
+ * `--force` to write it anyway, and `--only=72,80` to touch just those asset_ids.
  * Every write gets an asset_audit row, so it shows in the dashboard's change log.
  *
  * This ships with deploy-api to every box, hence the CLI-only and box checks.
@@ -77,7 +78,10 @@ $ORIGINAL = [
     69 => ['OGUSDT',        '200.000000',     '600.000',      null],
     70 => ['LRCUSDT',       '60000.000000',   '180000.000',   null],
     71 => ['FLUXUSDT',      '10000.000000',   '30000.000',    10],
-    72 => ['ACHUSDT',       '70000.000000',   '21000.000',    null],
+    // 182 held base 70000 here, a typo for 7000 (its max was already 21000 = 3 x 7000),
+    // confirmed 2026-10-26. Undo restores 7000; the literal row is kept in
+    // /root/backups/2026-10-25-binance-assets/assets_binance_before.sql.
+    72 => ['ACHUSDT',       '7000.000000',    '21000.000',    null],
     73 => ['RVNUSDT',       '200000.000000',  '600000.000',   null],
     74 => ['ARUSDT',        '50.000000',      '150.000',      null],
     75 => ['SANTOSUSDT',    '1000.000000',    '3000.000',     null],
@@ -93,8 +97,14 @@ $ORIGINAL = [
 
 $mode = $argv[1] ?? 'status';
 $force = in_array('--force', $argv, true);
+$only = null;
+foreach ($argv as $arg) {
+    if (strpos($arg, '--only=') === 0) {
+        $only = array_map('intval', explode(',', substr($arg, 7)));
+    }
+}
 if (!in_array($mode, ['status', 'apply', 'undo'], true)) {
-    fwrite(STDERR, "Usage: php " . basename(__FILE__) . " status|apply|undo [--force]\n");
+    fwrite(STDERR, "Usage: php " . basename(__FILE__) . " status|apply|undo [--force] [--only=ID,ID]\n");
     exit(1);
 }
 
@@ -151,6 +161,9 @@ $select = mysqli_prepare($conn, 'SELECT ticker, broker, side, base_size, max_inc
 $update = mysqli_prepare($conn, 'UPDATE assets SET base_size = ?, max_increments = ?, leverage = ? WHERE asset_id = ?');
 
 foreach ($ORIGINAL as $id => $orig) {
+    if ($only !== null && !in_array($id, $only, true)) {
+        continue;
+    }
     [$ticker, $base0, $max0, $lev0] = $orig;
     [$base1, $max1, $lev1] = resized($orig);
 
@@ -174,7 +187,7 @@ foreach ($ORIGINAL as $id => $orig) {
     }
 
     if ($mode === 'apply') {
-        $from_ok = $isOrig;
+        $from_ok = $isOrig || $force;
         $done = $isNew;
         $to = [$base1, $max1, $lev1];
     } else {
@@ -188,7 +201,7 @@ foreach ($ORIGINAL as $id => $orig) {
         continue;
     }
     if (!$from_ok) {
-        echo "$label SKIP  edited by hand since ($now)" . ($mode === 'undo' ? ' -- use --force to restore anyway' : '') . "\n";
+        echo "$label SKIP  edited by hand since ($now) -- add --force to write it anyway\n";
         $counts['skipped']++;
         continue;
     }
@@ -204,5 +217,5 @@ foreach ($ORIGINAL as $id => $orig) {
 
 mysqli_commit($conn);
 if ($mode !== 'status') {
-    printf("\n%s: %d changed, %d already done, %d skipped (of %d)\n", $mode, $counts['changed'], $counts['already'], $counts['skipped'], count($ORIGINAL));
+    printf("\n%s: %d changed, %d already done, %d skipped (of %d)\n", $mode, $counts['changed'], $counts['already'], $counts['skipped'], $only === null ? count($ORIGINAL) : count($only));
 }
