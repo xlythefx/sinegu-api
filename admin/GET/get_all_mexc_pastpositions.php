@@ -37,7 +37,7 @@ if (!$conn) {
 // The account join supplies the owner label + capital base, so admin views can attribute a
 // trade to a user and express its P&L as a share of that account's balance. `api_key` is a
 // secret and is deliberately never echoed back — `uni_id` is the owner key.
-$sql = "SELECT p.id, p.uni_id, p.symbol, p.realized_pnl, p.exit_price, p.closed_at, p.created_at,
+$sql = "SELECT p.id, p.uni_id, p.symbol, p.realized_pnl, p.exit_price, p.position_amt, p.entry_price, p.closed_at, p.created_at,
                p.strategy, p.side,
                b.name AS account_name, b.balance AS account_balance,
                b.currency_type AS account_currency,
@@ -66,6 +66,9 @@ while ($row = mysqli_fetch_assoc($result)) {
         'account_id' => 0,
         'ticker' => $row['symbol'],
         'price' => (string) ($row['exit_price'] ?? '0'),
+        // Size closed and its entry; entry_price is NULL/0 on rows the poller backfilled.
+        'size' => $row['position_amt'] === null ? null : abs((float) $row['position_amt']),
+        'entry_price' => (float) $row['entry_price'] > 0 ? (float) $row['entry_price'] : null,
         'pnl' => (float) ($row['realized_pnl'] ?? 0),
         'pnl_percentage' => 0,
         'closed_positions' => 1,

@@ -28,7 +28,7 @@ if (empty($uni_id)) {
 }
 
 // Query trades by joining through accounts table using uni_id
-$sql = "SELECT t.id, t.account_id, t.ticker, t.price, t.pnl, t.pnl_percentage, t.closed_positions, 
+$sql = "SELECT t.id, t.account_id, t.ticker, t.price, t.size, t.entry_price, t.pnl, t.pnl_percentage, t.closed_positions,
                t.date_closed, t.time_closed, t.created_at, t.strategy,
                a.name AS account_name, a.email AS account_email, a.uni_id AS account_uni_id
         FROM trades t
@@ -55,6 +55,9 @@ while ($row = mysqli_fetch_assoc($result)) {
     $row['pnl'] = (float) $row['pnl'];
     $row['pnl_percentage'] = (float) $row['pnl_percentage'];
     $row['closed_positions'] = (int) $row['closed_positions'];
+    // NULL on rows written before mig 097.
+    $row['size'] = $row['size'] === null ? null : (float) $row['size'];
+    $row['entry_price'] = $row['entry_price'] === null ? null : (float) $row['entry_price'];
     $trades[] = $row;
 }
 

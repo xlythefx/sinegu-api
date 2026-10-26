@@ -33,7 +33,7 @@ if (!$conn) {
     exit;
 }
 
-$sql = "SELECT p.id, p.account_id, p.ticker, p.close_price, p.pnl, p.closed_at, p.created_at,
+$sql = "SELECT p.id, p.account_id, p.ticker, p.close_price, p.size, p.open_price, p.pnl, p.closed_at, p.created_at,
                p.strategy, p.side,
                a.name AS account_name, a.email AS account_email, a.uni_id,
                a.balance AS account_balance, a.currency_type AS account_currency
@@ -61,6 +61,8 @@ while ($row = mysqli_fetch_assoc($result)) {
         'account_id'      => (int) $row['account_id'],
         'ticker'          => $row['ticker'],
         'price'           => (string) ($row['close_price'] ?? '0'),
+        'size'            => $row['size'] === null ? null : abs((float) $row['size']),
+        'entry_price'     => (float) $row['open_price'] > 0 ? (float) $row['open_price'] : null,
         'pnl'             => (float) ($row['pnl'] ?? 0),
         'pnl_percentage'  => 0,
         'closed_positions'=> 1,

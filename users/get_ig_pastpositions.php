@@ -39,7 +39,7 @@ if (!$uni_id) {
 
 $uni_id = mysqli_real_escape_string($conn, $uni_id);
 
-$sql = "SELECT p.ticker AS symbol, COALESCE(p.pnl, 0) AS realized_pnl, p.closed_at, p.strategy
+$sql = "SELECT p.ticker AS symbol, COALESCE(p.pnl, 0) AS realized_pnl, p.size, p.open_price, p.close_price, p.closed_at, p.strategy
     FROM ig_past_positions p
     JOIN ig_accounts a ON a.id = p.account_id
     WHERE a.uni_id = '{$uni_id}' AND a.deleted_at IS NULL
@@ -58,6 +58,9 @@ while ($row = mysqli_fetch_assoc($result)) {
     $positions[] = [
         'symbol'       => $row['symbol'],
         'realized_pnl' => (float) $row['realized_pnl'],
+        'size'         => $row['size'] === null ? null : abs((float) $row['size']),
+        'entry_price'  => (float) $row['open_price'] > 0 ? (float) $row['open_price'] : null,
+        'exit_price'   => (float) $row['close_price'] > 0 ? (float) $row['close_price'] : null,
         'closed_at'    => $row['closed_at'],
         'strategy'     => $row['strategy'] ?? null,
     ];

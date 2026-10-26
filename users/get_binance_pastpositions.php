@@ -39,7 +39,7 @@ if (!$uni_id) {
 
 $uni_id = mysqli_real_escape_string($conn, $uni_id);
 
-$sql = "SELECT symbol, COALESCE(realized_pnl, 0) AS realized_pnl, COALESCE(exit_price, 0) AS exit_price, closed_at, strategy
+$sql = "SELECT symbol, COALESCE(realized_pnl, 0) AS realized_pnl, COALESCE(exit_price, 0) AS exit_price, position_amt, entry_price, closed_at, strategy
     FROM binance_pastpositions
     WHERE uni_id = '{$uni_id}'
     ORDER BY closed_at ASC";
@@ -58,6 +58,9 @@ while ($row = mysqli_fetch_assoc($result)) {
         'symbol' => $row['symbol'],
         'realized_pnl' => (float) $row['realized_pnl'],
         'exit_price' => (float) $row['exit_price'],
+        // Size closed and its entry; entry_price is NULL/0 on rows the poller backfilled.
+        'size' => $row['position_amt'] === null ? null : abs((float) $row['position_amt']),
+        'entry_price' => (float) $row['entry_price'] > 0 ? (float) $row['entry_price'] : null,
         'closed_at' => $row['closed_at'],
         'strategy' => isset($row['strategy']) ? $row['strategy'] : null,
     ];

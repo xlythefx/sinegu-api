@@ -3,6 +3,7 @@
  * Insert a completed trade
  * POST JSON: {"account_id": 1, "ticker": "BTCUSD", "pnl": 100.50, "pnl_percentage": 2.5, "closed_positions": 3, "price": 50000.00}
  * Optional side: BUY/LONG or SELL/SHORT — see normalize_trade_side() below.
+ * Optional size / entry_price: closed size and its weighted open level (mig 097).
  * Returns JSON: {"success": true, "message": "Trade inserted"}
  */
 
@@ -106,24 +107,45 @@ if (isset($input['side']) && trim((string) $input['side']) !== '') {
     }
 }
 
-$has_deal_ids = $deal_ids !== null && $deal_ids !== '';
-if ($has_deal_ids) {
-    $sql = "INSERT INTO trades (account_id, ticker, pnl, pnl_percentage, closed_positions, price, date_closed, time_closed, deal_ids, strategy{$side_sql}, created_at) 
-            VALUES ({$account_id}, '{$ticker}', {$pnl}, {$pnl_percentage}, {$closed_positions}, {$price}, '{$date_closed}', '{$time_closed}', '{$deal_ids}', '{$strategy}'{$side_val}, NOW())";
-} else {
-    $sql = "INSERT INTO trades (account_id, ticker, pnl, pnl_percentage, closed_positions, price, date_closed, time_closed, strategy{$side_sql}, created_at) 
-            VALUES ({$account_id}, '{$ticker}', {$pnl}, {$pnl_percentage}, {$closed_positions}, {$price}, '{$date_closed}', '{$time_closed}', '{$strategy}'{$side_val}, NOW())";
+// Optional size of the closed deals and their size-weighted open level (mig 097), shown
+// on the dashboard's closed positions. floatval() output needs no escaping.
+$size_sql = '';
+$size_val = '';
+foreach (['size', 'entry_price'] as $col) {
+    if (isset($input[$col]) && is_numeric($input[$col]) && floatval($input[$col]) > 0) {
+        $size_sql .= ", {$col}";
+        $size_val .= ', ' . floatval($input[$col]);
+    }
 }
+
+$build_insert_trade_sql = function ($extra_sql, $extra_val) use (
+    $deal_ids, $account_id, $ticker, $pnl, $pnl_percentage, $closed_positions, $price,
+    $date_closed, $time_closed, $strategy, $side_sql, $side_val
+) {
+    if ($deal_ids !== null && $deal_ids !== '') {
+        return "INSERT INTO trades (account_id, ticker, pnl, pnl_percentage, closed_positions, price, date_closed, time_closed, deal_ids, strategy{$side_sql}{$extra_sql}, created_at)
+            VALUES ({$account_id}, '{$ticker}', {$pnl}, {$pnl_percentage}, {$closed_positions}, {$price}, '{$date_closed}', '{$time_closed}', '{$deal_ids}', '{$strategy}'{$side_val}{$extra_val}, NOW())";
+    }
+    return "INSERT INTO trades (account_id, ticker, pnl, pnl_percentage, closed_positions, price, date_closed, time_closed, strategy{$side_sql}{$extra_sql}, created_at)
+            VALUES ({$account_id}, '{$ticker}', {$pnl}, {$pnl_percentage}, {$closed_positions}, {$price}, '{$date_closed}', '{$time_closed}', '{$strategy}'{$side_val}{$extra_val}, NOW())";
+};
+
 // PHP 8.1+ mysqli throws instead of returning false, so without this catch the
 // `if (!$result)` handling below never ran — including the 1062 idempotency branch.
-try {
-    $result = mysqli_query($conn, $sql);
-    $errno = $result ? 0 : mysqli_errno($conn);
-    $errmsg = $result ? '' : mysqli_error($conn);
-} catch (\mysqli_sql_exception $e) {
-    $result = false;
-    $errno = $e->getCode();
-    $errmsg = $e->getMessage();
+function run_insert_trade($conn, $sql) {
+    try {
+        $result = mysqli_query($conn, $sql);
+        return [$result, $result ? 0 : mysqli_errno($conn), $result ? '' : mysqli_error($conn)];
+    } catch (\mysqli_sql_exception $e) {
+        return [false, $e->getCode(), $e->getMessage()];
+    }
+}
+
+[$result, $errno, $errmsg] = run_insert_trade($conn, $build_insert_trade_sql($size_sql, $size_val));
+// 1054 = unknown column: a box where mig 097 has not run yet. The size is display-only,
+// so record the trade without it rather than lose the whole row.
+if (!$result && $errno == 1054 && $size_sql !== '') {
+    [$result, $errno, $errmsg] = run_insert_trade($conn, $build_insert_trade_sql('', ''));
 }
 
 if (!$result) {
