@@ -2,7 +2,7 @@
 /**
  * Admin: every stored broker account for one broker, with the owning user.
  *
- * GET /admin/GET/get_broker_api_keys.php?broker=capital|binance|ig
+ * GET /admin/GET/get_broker_api_keys.php?broker=capital|binance|ig|mexc|bybit
  *
  * Returns:
  *   { success: true, broker, accounts: [ {
@@ -52,10 +52,10 @@ if (!$conn) {
 }
 
 $broker = isset($_GET['broker']) ? strtolower(trim((string) $_GET['broker'])) : '';
-if (!in_array($broker, ['capital', 'binance', 'ig', 'mexc'], true)) {
+if (!in_array($broker, ['capital', 'binance', 'ig', 'mexc', 'bybit'], true)) {
     mysqli_close($conn);
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'broker must be capital, binance, ig, or mexc']);
+    echo json_encode(['success' => false, 'message' => 'broker must be capital, binance, ig, mexc, or bybit']);
     exit;
 }
 
@@ -64,6 +64,7 @@ if (!in_array($broker, ['capital', 'binance', 'ig', 'mexc'], true)) {
  *   accounts         — `id` PK, email + plaintext password, NO secret_key
  *   binance_accounts — `api_key` IS the PK (no id), secret_key, no email/password
  *   mexc_accounts    — same shape as binance_accounts (column-for-column twin)
+ *   bybit_accounts   — same shape as binance_accounts (column-for-column twin)
  *   ig_accounts      — `id` PK, email + password AND secret_key
  * So the select list is assembled per broker rather than shared.
  */
@@ -74,8 +75,8 @@ if ($broker === 'capital') {
     $brokerAcctEx = 'a.broker_accountID';
     $hasSecretEx  = '0';
     $hasPassEx    = "(a.password IS NOT NULL AND a.password <> '')";
-} elseif ($broker === 'binance' || $broker === 'mexc') {
-    $table = $broker === 'mexc' ? 'mexc_accounts' : 'binance_accounts';
+} elseif ($broker === 'binance' || $broker === 'mexc' || $broker === 'bybit') {
+    $table = $broker === 'mexc' ? 'mexc_accounts' : ($broker === 'bybit' ? 'bybit_accounts' : 'binance_accounts');
     $idExpr       = 'NULL';
     $emailExpr    = "''";
     $brokerAcctEx = 'NULL';

@@ -59,6 +59,7 @@ function ticker_clause($column, array $tickers, $mode) {
 }
 
 require_once __DIR__ . '/../../conn.php';
+require_once __DIR__ . '/../../includes/bybit_schema.php';
 if (!$conn) {
     ob_end_clean();
     http_response_code(500);
@@ -224,6 +225,53 @@ if (!empty($mexcKeys)) {
     mysqli_stmt_close($stmt);
 }
 
+// ── Bybit ── skipped until migrations 098-101 create its tables (includes/bybit_schema.php)
+$bybit = ['accounts' => 0, 'balance' => 0.0, 'initial_deposit' => 0.0, 'net_flow' => 0.0];
+if (bybit_tables_ready($conn)) {
+    // Same shape as the Binance block: Bybit stores the instrument in `symbol` too.
+    list($bybitTickClause, $bybitTickParams, $bybitTickTypes) = ticker_clause('symbol', $tickers, $mode);
+    $bybitKeys = fetch_distinct_ids(
+        $conn,
+        'SELECT DISTINCT api_key FROM bybit_pastpositions WHERE strategy = ? AND api_key IS NOT NULL' . $bybitTickClause,
+        $strategy,
+        $bybitTickParams,
+        $bybitTickTypes
+    );
+    if (!empty($bybitKeys)) {
+        $ph = implode(',', array_fill(0, count($bybitKeys), '?'));
+        $types = str_repeat('s', count($bybitKeys));
+        $sql = "SELECT api_key, COALESCE(balance, 0) AS balance,
+                       COALESCE(initial_deposit, 0) AS initial_deposit
+                FROM bybit_accounts WHERE api_key IN ($ph)";
+        if (!($stmt = mysqli_prepare($conn, $sql))) fail_out($conn, 'bybit accounts query failed');
+        $refs = []; foreach ($bybitKeys as $k => $v) { $refs[$k] = &$bybitKeys[$k]; }
+        call_user_func_array([$stmt, 'bind_param'], array_merge([$types], $refs));
+        mysqli_stmt_execute($stmt);
+        $r = mysqli_stmt_get_result($stmt);
+        while ($row = mysqli_fetch_assoc($r)) {
+            $bybit['accounts']++;
+            $bybit['balance'] += (float) $row['balance'];
+            $bybit['initial_deposit'] += (float) $row['initial_deposit'];
+
+            $apiKey = $row['api_key'];
+            $txSql = "SELECT COALESCE(SUM(CASE WHEN UPPER(type) = 'DEPOSIT' THEN amount
+                                               WHEN UPPER(type) = 'WITHDRAWAL' THEN -amount
+                                               ELSE 0 END), 0) AS net_flow
+                      FROM bybit_transactions WHERE api_key = ?";
+            if ($txStmt = mysqli_prepare($conn, $txSql)) {
+                mysqli_stmt_bind_param($txStmt, 's', $apiKey);
+                if (mysqli_stmt_execute($txStmt)) {
+                    $tr = mysqli_stmt_get_result($txStmt);
+                    $tx = mysqli_fetch_assoc($tr);
+                    $bybit['net_flow'] += (float) ($tx['net_flow'] ?? 0);
+                }
+                mysqli_stmt_close($txStmt);
+            }
+        }
+        mysqli_stmt_close($stmt);
+    }
+}
+
 // ── IG.com ────────────────────────────────────────────────────────────────────
 $ig = ['accounts' => 0, 'balance' => 0.0, 'initial_deposit' => 0.0, 'net_flow' => 0.0];
 list($igTickClause, $igTickParams, $igTickTypes) = ticker_clause('ticker', $tickers, $mode);
@@ -270,12 +318,12 @@ if (!empty($igIds)) {
 
 mysqli_close($conn);
 
-$total_balance = $capital['balance'] + $binance['balance'] + $ig['balance'] + $mexc['balance'];
-$total_initial_deposit = $capital['initial_deposit'] + $binance['initial_deposit'] + $ig['initial_deposit'] + $mexc['initial_deposit'];
-$total_net_flow = $capital['net_flow'] + $binance['net_flow'] + $ig['net_flow'] + $mexc['net_flow'];
+$total_balance = $capital['balance'] + $binance['balance'] + $ig['balance'] + $mexc['balance'] + $bybit['balance'];
+$total_initial_deposit = $capital['initial_deposit'] + $binance['initial_deposit'] + $ig['initial_deposit'] + $mexc['initial_deposit'] + $bybit['initial_deposit'];
+$total_net_flow = $capital['net_flow'] + $binance['net_flow'] + $ig['net_flow'] + $mexc['net_flow'] + $bybit['net_flow'];
 $adjusted = $total_initial_deposit + $total_net_flow;
 $pct_change = $adjusted != 0 ? (($total_balance - $adjusted) / $adjusted) * 100 : 0.0;
-$account_count = $capital['accounts'] + $binance['accounts'] + $ig['accounts'] + $mexc['accounts'];
+$account_count = $capital['accounts'] + $binance['accounts'] + $ig['accounts'] + $mexc['accounts'] + $bybit['accounts'];
 
 $broker_block = function ($b) {
     return [
@@ -302,5 +350,6 @@ echo json_encode([
         'Binance' => $broker_block($binance),
         'IG.com' => $broker_block($ig),
         'MEXC' => $broker_block($mexc),
+        'Bybit' => $broker_block($bybit),
     ],
 ]);

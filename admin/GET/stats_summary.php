@@ -51,6 +51,7 @@ if ($expectedToken !== null && $expectedToken !== '') {
 
 require_once __DIR__ . '/../../conn.php';
 require_once __DIR__ . '/../../includes/user_types.php';
+require_once __DIR__ . '/../../includes/bybit_schema.php';
 
 if (!$conn) {
     ob_end_clean();
@@ -86,12 +87,14 @@ $stats = [
         'binance' => stat_count($conn, 'SELECT COUNT(*) FROM binance_accounts'),
         'ig'      => stat_count($conn, 'SELECT COUNT(*) FROM ig_accounts'),
         'mexc'    => stat_count($conn, 'SELECT COUNT(*) FROM mexc_accounts'),
+        'bybit'   => bybit_tables_ready($conn) ? stat_count($conn, 'SELECT COUNT(*) FROM bybit_accounts') : null,
     ],
     'open_positions' => [
         'capital' => stat_count($conn, 'SELECT COUNT(*) FROM positions'),
         'binance' => stat_count($conn, 'SELECT COUNT(*) FROM binance_positions'),
         'ig'      => stat_count($conn, 'SELECT COUNT(*) FROM ig_positions'),
         'mexc'    => stat_count($conn, 'SELECT COUNT(*) FROM mexc_positions'),
+        'bybit'   => bybit_tables_ready($conn) ? stat_count($conn, 'SELECT COUNT(*) FROM bybit_positions') : null,
     ],
     'signups_last_7d' => stat_count($conn, "SELECT COUNT(*) FROM user_credentials WHERE created_at >= (NOW() - INTERVAL 7 DAY) AND $customer"),
     'signups_today'   => stat_count($conn, "SELECT COUNT(*) FROM user_credentials WHERE DATE(created_at) = CURDATE() AND $customer"),

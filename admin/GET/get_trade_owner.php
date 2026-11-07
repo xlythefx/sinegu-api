@@ -41,6 +41,7 @@ if ($uni_id === '') {
 }
 
 require_once __DIR__ . '/../../conn.php';
+require_once __DIR__ . '/../../includes/bybit_schema.php';
 
 if (!$conn) {
     ob_end_clean();
@@ -233,6 +234,44 @@ foreach (sort_accounts(q_all(
         $entry['strategy_trades'] = (int) q_scalar($conn, 'SELECT COUNT(*) FROM mexc_pastpositions WHERE api_key = ? AND strategy = ?', 'ss', [$key, $strategy], 0);
     }
     $accounts[] = $entry;
+}
+
+// ── Bybit ───────────────────────────────────────────────────────────────────
+// Twin of the Binance block on the bybit_* tables. Keyed by api_key, which is a secret — it is used for the joins below but never emitted.
+// Skipped until migrations 098-101 create the bybit_* tables (includes/bybit_schema.php).
+if (bybit_tables_ready($conn)) {
+    foreach (sort_accounts(q_all(
+        $conn,
+        'SELECT * FROM bybit_accounts WHERE uni_id = ?',
+        's',
+        [$uni_id]
+    )) as $row) {
+        $key = $row['api_key'];
+        $entry = [
+            'broker' => 'Bybit',
+            'id' => null,
+            'name' => col($row, 'name') ?: 'Bybit',
+            'email' => $user['email'],
+            'balance' => num(col($row, 'balance')),
+            'initial_deposit' => num(col($row, 'initial_deposit')),
+            'unrealized_pnl' => num(col($row, 'unrealized_pnl')),
+            'equity' => null,
+            'currency_type' => col($row, 'currency_type', 'USDT'),
+            'demo' => (int) col($row, 'demo', 0),
+            'enabled' => 1,
+            'created_at' => col($row, 'created_at'),
+            'deleted_at' => col($row, 'deleted_at'),
+            'realized_pnl' => (float) q_scalar($conn, 'SELECT COALESCE(SUM(realized_pnl), 0) FROM bybit_pastpositions WHERE api_key = ?', 's', [$key]),
+            'trade_count' => (int) q_scalar($conn, 'SELECT COUNT(*) FROM bybit_pastpositions WHERE api_key = ?', 's', [$key], 0),
+            'strategy_pnl' => null,
+            'strategy_trades' => null,
+        ];
+        if ($strategy !== '') {
+            $entry['strategy_pnl'] = (float) q_scalar($conn, 'SELECT COALESCE(SUM(realized_pnl), 0) FROM bybit_pastpositions WHERE api_key = ? AND strategy = ?', 'ss', [$key, $strategy]);
+            $entry['strategy_trades'] = (int) q_scalar($conn, 'SELECT COUNT(*) FROM bybit_pastpositions WHERE api_key = ? AND strategy = ?', 'ss', [$key, $strategy], 0);
+        }
+        $accounts[] = $entry;
+    }
 }
 
 // ── IG.com ────────────────────────────────────────────────────────────────────

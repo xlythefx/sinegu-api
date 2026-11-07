@@ -18,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/../conn.php';
+require_once __DIR__ . '/../includes/bybit_schema.php';
 
 if (!$conn) {
     http_response_code(500);
@@ -187,6 +188,25 @@ try {
         mysqli_free_result($mexcAcctRes);
     }
 
+    // (b3) Bybit accounts: presence + earliest created_at per uni_id
+    $bybitAcctMap = [];
+    // Skipped (false) until migrations 098-101 create the bybit_* tables.
+    $bybitAcctRes = !bybit_tables_ready($conn) ? false : mysqli_query($conn,
+        // `deleted_at IS NULL` alone — MySQL 8 rejects a comparison against
+        // '0000-00-00 00:00:00' in strict mode, which took this whole endpoint
+        // down after the 2026-08-12 cutover. A zero date cannot be stored here.
+        "SELECT uni_id, MIN(created_at) AS earliest_at
+         FROM bybit_accounts
+         WHERE deleted_at IS NULL
+         GROUP BY uni_id"
+    );
+    if ($bybitAcctRes) {
+        while ($r = mysqli_fetch_assoc($bybitAcctRes)) {
+            $bybitAcctMap[$r['uni_id']] = $r['earliest_at'];
+        }
+        mysqli_free_result($bybitAcctRes);
+    }
+
     // (c) Capital closed positions count per uni_id (from trades)
     $capitalClosedMap = [];
     $capitalClosedRes = mysqli_query($conn,
@@ -232,6 +252,20 @@ try {
         mysqli_free_result($mexcPosRes);
     }
 
+    // (d3) Bybit closed positions count per uni_id (from bybit_pastpositions)
+    $bybitPosMap = [];
+    $bybitPosRes = !bybit_tables_ready($conn) ? false : mysqli_query($conn,
+        "SELECT uni_id, COUNT(*) AS cnt
+         FROM bybit_pastpositions
+         GROUP BY uni_id"
+    );
+    if ($bybitPosRes) {
+        while ($r = mysqli_fetch_assoc($bybitPosRes)) {
+            $bybitPosMap[$r['uni_id']] = (int)$r['cnt'];
+        }
+        mysqli_free_result($bybitPosRes);
+    }
+
     // (e) IG accounts: presence + earliest created_at per uni_id
     $igAcctMap = [];
     $igAcctRes = mysqli_query($conn,
@@ -269,6 +303,7 @@ try {
         $hasBinance = isset($binanceAcctMap[$userId]);
         $hasIg      = isset($igAcctMap[$userId]);
         $hasMexc    = isset($mexcAcctMap[$userId]);
+        $hasBybit   = isset($bybitAcctMap[$userId]);
 
         // Capital closed positions count (from trades table)
         $capitalPosCount = $capitalClosedMap[$userId] ?? 0;
@@ -279,6 +314,7 @@ try {
         if ($hasBinance && $binanceAcctMap[$userId]) $candidates[] = $binanceAcctMap[$userId];
         if ($hasIg      && $igAcctMap[$userId])      $candidates[] = $igAcctMap[$userId];
         if ($hasMexc    && $mexcAcctMap[$userId])    $candidates[] = $mexcAcctMap[$userId];
+        if ($hasBybit   && $bybitAcctMap[$userId])   $candidates[] = $bybitAcctMap[$userId];
         $earliestAt = count($candidates) > 0 ? min($candidates) : null;
 
         $entry['has_capital_accounts']       = $hasCapital;
@@ -289,6 +325,8 @@ try {
         $entry['ig_positions_count']         = $igPosMap[$userId] ?? 0;
         $entry['has_mexc_accounts']          = $hasMexc;
         $entry['mexc_positions_count']       = $mexcPosMap[$userId] ?? 0;
+        $entry['has_bybit_accounts']         = $hasBybit;
+        $entry['bybit_positions_count']      = $bybitPosMap[$userId] ?? 0;
         $entry['earliest_account_created_at'] = $earliestAt;
     }
     unset($entry);

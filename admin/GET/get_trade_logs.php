@@ -76,7 +76,7 @@ $offset = isset($_GET['offset']) ? max(0, (int) $_GET['offset']) : 0;
 $where = [];
 
 $broker = isset($_GET['broker']) ? strtolower(trim((string) $_GET['broker'])) : '';
-if (in_array($broker, ['capital', 'binance', 'ig', 'mexc'], true)) {
+if (in_array($broker, ['capital', 'binance', 'ig', 'mexc', 'bybit'], true)) {
     $where[] = "broker = '" . mysqli_real_escape_string($conn, $broker) . "'";
 }
 
