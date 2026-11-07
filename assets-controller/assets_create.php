@@ -119,7 +119,7 @@ if (empty($ticker)) {
 }
 
 // Crypto futures brokers size in coins (fractional); everything else in whole increments.
-$minIncrement = in_array(strtolower(trim((string) $broker)), ['binance', 'mexc'], true) ? 0.001 : 1;
+$minIncrement = in_array(strtolower(trim((string) $broker)), ['binance', 'mexc', 'bybit'], true) ? 0.001 : 1;
 if ($max_increments < $minIncrement) {
     ob_clean();
     http_response_code(400);

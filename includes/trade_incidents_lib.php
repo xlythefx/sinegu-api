@@ -18,7 +18,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     exit;
 }
 
-const TI_BROKERS    = ['capital', 'binance', 'ig', 'mexc'];
+const TI_BROKERS    = ['capital', 'binance', 'ig', 'mexc', 'bybit']; // 'bybit': migration 102
 const TI_SEVERITIES = ['critical', 'error', 'warning'];
 const TI_STATUSES   = ['open', 'retrying', 'resolved', 'ignored'];
 

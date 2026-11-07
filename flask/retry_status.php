@@ -7,7 +7,7 @@
  *   - next attempt time
  *   - attempt progress (attempt_count / max_attempts)
  *
- * ?broker=capital|binance|mexc|ig|all (default 'capital', so the existing Capital view
+ * ?broker=capital|binance|mexc|ig|bybit|all (default 'capital', so the existing Capital view
  * is unchanged once Binance/MEXC share the table - migration 094). Without the broker
  * column every row is capital.
  */

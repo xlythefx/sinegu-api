@@ -11,7 +11,7 @@
  * {
  *   "secret": "...",                // required; TRADE_LOG_SECRET, else CAPITAL_API_LOG_SECRET
  *   "op": "open" | "resolve",       // default "open"
- *   "broker": "capital|binance|ig|mexc",
+ *   "broker": "capital|binance|ig|mexc|bybit",
  *   "env_label": "NEXAFAMILY PROD 191",
  *   "kind": "exit_failed", "severity": "critical",
  *   "uni_id": "...", "account": "Dima", "symbol": "FLUXUSDT", "side": "SHORT",

@@ -17,7 +17,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     exit;
 }
 
-const RETRY_QUEUE_BROKERS = ['capital', 'binance', 'mexc', 'ig'];
+const RETRY_QUEUE_BROKERS = ['capital', 'binance', 'mexc', 'ig', 'bybit'];
 
 /** ['broker' => bool, 'payload' => bool] for capital_retry_queue (one information_schema query). */
 function retry_queue_columns($conn) {

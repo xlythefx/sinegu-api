@@ -15,7 +15,7 @@
  *   "is_demo_only": false,           // optional
  *   "max_attempts": 12,              // required (exit=12, entry=4)
  *   "first_delay_sec": 300,          // optional: seconds until first retry (default 300)
- *   "broker": "capital",             // optional: capital | binance | mexc | ig (default capital; migration 094)
+ *   "broker": "capital",             // optional: capital | binance | mexc | ig | bybit (default capital; migration 094)
  *   "payload": { "leverage": 20 },   // optional JSON object of extra job fields (migration 094)
  *   "leverage": 20                   // optional shorthand, merged into payload
  * }
