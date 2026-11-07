@@ -9,7 +9,7 @@
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Headers: Content-Type, X-Admin-Password');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -21,6 +21,17 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     echo json_encode(['success' => false, 'message' => 'Method not allowed']);
     exit;
 }
+
+/*
+ * Gated rather than stripped, unlike accounts_list.php.
+ *
+ * This one is admin-only (AdminUsers) and genuinely displays api_key and email,
+ * and Binance rows are *identified* by api_key — binance_accounts has no `id`,
+ * so it is the primary key that edit/disconnect/reveal all key off. Removing it
+ * would break those actions, so the endpoint takes the password instead.
+ */
+require_once __DIR__ . '/includes/admin_action_auth.php';
+requireAdminActionPassword();
 
 require_once __DIR__ . '/conn.php';
 
@@ -146,12 +157,6 @@ if ($binanceResult) {
     mysqli_free_result($binanceResult);
 }
 
-mysqli_close($conn);
-
-echo json_encode([
-    'success' => true,
-    'accounts' => $out,
-]);
 // --- 3) MEXC accounts from `mexc_accounts` (twin of the Binance block above; same columns) ---
 $mexcSql = "SELECT api_key, uni_id, name, balance, initial_deposit, currency_type, created_at, deleted_at, demo, enabled FROM mexc_accounts WHERE uni_id IS NOT NULL AND uni_id != '' ORDER BY (deleted_at IS NULL) DESC, name ASC";
 $mexcResult = mysqli_query($conn, $mexcSql);
@@ -199,3 +204,9 @@ if ($mexcResult) {
     mysqli_free_result($mexcResult);
 }
 
+mysqli_close($conn);
+
+echo json_encode([
+    'success' => true,
+    'accounts' => $out,
+]);

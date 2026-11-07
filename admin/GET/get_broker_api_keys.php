@@ -25,7 +25,7 @@
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Headers: Content-Type, X-Admin-Password');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -37,6 +37,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     echo json_encode(['success' => false, 'message' => 'Method not allowed']);
     exit;
 }
+
+// Lists a whole broker's accounts, so it is gated like get_broker_credentials.php.
+// The email allowlist on the React page is a UI gate only; this is the real one.
+require_once __DIR__ . '/../../includes/admin_action_auth.php';
+requireAdminActionPassword();
 
 require_once __DIR__ . '/../../conn.php';
 
@@ -58,12 +63,12 @@ if (!in_array($broker, ['capital', 'binance', 'ig', 'mexc'], true)) {
  * The three account tables differ in ways that matter here:
  *   accounts         — `id` PK, email + plaintext password, NO secret_key
  *   binance_accounts — `api_key` IS the PK (no id), secret_key, no email/password
+ *   mexc_accounts    — same shape as binance_accounts (column-for-column twin)
  *   ig_accounts      — `id` PK, email + password AND secret_key
  * So the select list is assembled per broker rather than shared.
  */
 if ($broker === 'capital') {
     $table = 'accounts';
- *   mexc_accounts    — same shape as binance_accounts (column-for-column twin)
     $idExpr       = 'a.id';
     $emailExpr    = 'a.email';
     $brokerAcctEx = 'a.broker_accountID';

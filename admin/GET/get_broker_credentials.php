@@ -14,7 +14,7 @@
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Headers: Content-Type, X-Admin-Password');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -26,6 +26,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     echo json_encode(['success' => false, 'message' => 'Method not allowed']);
     exit;
 }
+
+/*
+ * Password-gated, and this is the endpoint that most needs it: it is keyed by a
+ * sequential integer, so while it was open anyone could walk id=1,2,3… and
+ * harvest every broker api_key, secret_key and plaintext password in the system.
+ * Gating the account *lists* was pointless while this stood open beside them.
+ */
+require_once __DIR__ . '/../../includes/admin_action_auth.php';
+requireAdminActionPassword();
 
 require_once __DIR__ . '/../../conn.php';
 
@@ -78,10 +87,10 @@ if ($broker === 'capital') {
     $api_key = isset($_GET['api_key']) ? trim((string)$_GET['api_key']) : '';
     if ($api_key === '') {
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'api_key is required for binance']);
+        echo json_encode(['success' => false, 'message' => "api_key is required for $broker"]);
         exit;
     }
-    if ($stmt = mysqli_prepare($conn, 'SELECT api_key, secret_key, name FROM binance_accounts WHERE api_key = ?')) {
+    if ($stmt = mysqli_prepare($conn, "SELECT api_key, secret_key, name FROM $acctTable WHERE api_key = ?")) {
         mysqli_stmt_bind_param($stmt, 's', $api_key);
         mysqli_stmt_execute($stmt);
         $res = mysqli_stmt_get_result($stmt);
