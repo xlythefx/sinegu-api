@@ -143,6 +143,19 @@ switch ($broker) {
         $tickers = [$symbol];
         break;
 
+    case 'bybit':
+        // flask/bybit (:5004, staging 182 only for now). Like Binance it has a test feed
+        // that is the ONLY one tester-owned accounts answer, so route those there.
+        $url = (string) env('TRADE_RETRY_BYBIT_URL', 'http://127.0.0.1:5004/bybit_webhook');
+        $secret = (string) env('BYBIT_WEBHOOK_SECRET', 'bybit_bot');
+        if (user_type_of($conn, $uniId) === TESTER_USER_TYPE) {
+            $url = (string) env('TRADE_RETRY_BYBIT_TEST_URL', 'http://127.0.0.1:5004/bybit_test_webhook');
+            $secret = (string) env('BYBIT_TEST_WEBHOOK_SECRET', 'bybit_test_bot');
+        }
+        $actions = $side === 'LONG' ? ['EXIT_LONG'] : ($side === 'SHORT' ? ['EXIT_SHORT'] : ['EXIT_LONG', 'EXIT_SHORT']);
+        $tickers = [$symbol];
+        break;
+
     case 'capital':
         $url = (string) env('TRADE_RETRY_CAPITAL_URL', 'http://127.0.0.1:5000/webhook');
         $secret = (string) env('CAPITAL_WEBHOOK_SECRET', '');

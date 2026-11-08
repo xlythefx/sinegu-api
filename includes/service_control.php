@@ -163,6 +163,22 @@ if (!function_exists('sc_registry')) {
                     ['unit' => 'sinegu-mexc-performance',    'nssm' => null, 'label' => 'Performance report',   'role' => 'worker'],
                 ],
             ],
+            'bybit' => [
+                'label' => 'Bybit',
+                'ports' => [
+                    'webhook' => (int) env('Bybit_WEBHOOK_PORT', 5004),
+                ],
+                'units' => [
+                    // flask/bybit (2026-11-07), a twin of the Binance bot. Ubuntu-only and
+                    // provisioned on ubuntu-staging 182 only — see sc_expectation().
+                    ['unit' => 'sinegu-bybit-main',           'nssm' => null, 'label' => 'Webhook receiver',    'role' => 'main'],
+                    ['unit' => 'sinegu-bybit-balances',       'nssm' => null, 'label' => 'Balances poller',      'role' => 'worker'],
+                    ['unit' => 'sinegu-bybit-positions',      'nssm' => null, 'label' => 'Positions poller',     'role' => 'worker'],
+                    ['unit' => 'sinegu-bybit-transfers',      'nssm' => null, 'label' => 'Transfers poller',     'role' => 'worker'],
+                    ['unit' => 'sinegu-bybit-past-positions', 'nssm' => null, 'label' => 'Past-positions sync',  'role' => 'worker'],
+                    ['unit' => 'sinegu-bybit-performance',    'nssm' => null, 'label' => 'Performance report',   'role' => 'worker'],
+                ],
+            ],
             'telegram' => [
                 'label' => 'Telegram publisher',
                 'ports' => [], // polling bot — no inbound port
@@ -199,6 +215,12 @@ if (!function_exists('sc_expectation')) {
             if ($broker === 'telegram') {
                 return ['expected' => false, 'note' => 'Publisher runs on prod only (one poller per bot token)'];
             }
+        }
+
+        // Bybit is provisioned on ubuntu-staging 182 only (2026-11-07): prod 191 has no
+        // venv, units, .env or nginx route for it yet, so its absence there is not an outage.
+        if ($broker === 'bybit' && $envKey !== 'ubuntu-staging') {
+            return ['expected' => false, 'note' => 'Bybit runs on ubuntu-staging (182) only for now'];
         }
 
         // Both Windows boxes were left as the fallback copy of the data after the

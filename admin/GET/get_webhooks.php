@@ -9,7 +9,7 @@
  *                  engine: { reachable, test_feed_enabled }, receivers: { live, demo } }
  *
  * Ported from Pixel Alpha's Admin → Webhooks, with two Sinegu differences:
- *  - four receivers (Capital :5000, Binance :5001, IG :5002, MEXC :5003), each with its
+ *  - the receivers (Capital :5000, Binance :5001, IG :5002, MEXC :5003, Bybit :5004 on staging), each with its
  *    OWN secret, so every card carries its own alert message;
  *  - the secret is returned IN CLEAR so the alert can be copied ready to paste (owner's
  *    call, 2026-10-20). That is why this endpoint sits behind the admin action password:
@@ -45,6 +45,7 @@ requireAdminActionPassword(null);
 
 require_once __DIR__ . '/../../conn.php';
 require_once __DIR__ . '/../../includes/user_types.php';
+require_once __DIR__ . '/../../includes/service_control.php'; // sc_expectation(): Bybit is staging-only
 
 if (!$conn) {
     http_response_code(500);
@@ -139,7 +140,7 @@ function wh_capital_secret($conn): string {
 
 // One probe per receiver, shared by Binance's two feeds.
 $probes = [];
-foreach ([5000, 5001, 5002, 5003] as $port) {
+foreach ([5000, 5001, 5002, 5003, 5004] as $port) {
     $probes[$port] = wh_probe($port);
 }
 
@@ -150,6 +151,12 @@ $defs = [
     ['ig',           'ig',      'IG',          'main', '/ig_webhook',           5002, (string) env('IG_WEBHOOK_SECRET', 'ig_bot'),                     'ig_accounts',      null],
     ['binance_test', 'binance', 'Binance',     'test', '/binance_test_webhook', 5001, (string) env('BINANCE_TEST_WEBHOOK_SECRET', 'binance_test_bot'), 'binance_accounts', 'tester'],
 ];
+// Bybit (flask/bybit, :5004) only where it is deployed — sc_expectation() says ubuntu-staging.
+// Its secrets are the bot's in-code defaults (hooks.py), overridable like the others.
+if (sc_expectation('bybit')['expected']) {
+    $defs[] = ['bybit',      'bybit',   'Bybit',       'main', '/bybit_webhook',        5004, (string) env('BYBIT_WEBHOOK_SECRET', 'bybit_bot'),           'bybit_accounts',   'not_tester'];
+    $defs[] = ['bybit_test', 'bybit',   'Bybit',       'test', '/bybit_test_webhook',   5004, (string) env('BYBIT_TEST_WEBHOOK_SECRET', 'bybit_test_bot'), 'bybit_accounts',   'tester'];
+}
 
 $webhooks = [];
 foreach ($defs as [$key, $broker, $label, $feed, $path, $port, $secret, $table, $owner]) {

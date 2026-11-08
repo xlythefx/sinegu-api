@@ -167,12 +167,12 @@ $tools = [
         'type' => 'function',
         'function' => [
             'name' => 'tail_service_log',
-            'description' => 'Read the last N lines of a Flask service log and its NSSM status on a VPS. Use to inspect/tail Binance, MEXC, Capital.com, or IG bots. By default tails the most recently updated log; capital and ig have several module logs (the response lists available_logs), pass "file" to tail a specific one.',
+            'description' => 'Read the last N lines of a Flask service log and its NSSM status on a VPS. Use to inspect/tail Binance, MEXC, Bybit, Capital.com, or IG bots. By default tails the most recently updated log; capital and ig have several module logs (the response lists available_logs), pass "file" to tail a specific one.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
                     'env' => ['type' => 'string', 'enum' => ['prod', 'staging']],
-                    'service' => ['type' => 'string', 'enum' => ['binance', 'mexc', 'capital', 'ig']],
+                    'service' => ['type' => 'string', 'enum' => ['binance', 'mexc', 'bybit', 'capital', 'ig']],
                     'lines' => ['type' => 'integer', 'description' => 'How many lines to tail (10-500, default 120)'],
                     'file' => ['type' => 'string', 'description' => 'Optional: specific log basename to tail (e.g. fetch_balances.log). Omit to tail the most recent log.'],
                 ],
@@ -270,7 +270,7 @@ $systemPrompt =
     "You help the admin inspect the Sinegu trading platform across two environments:\n" .
     "- PROD: VPS 167.86.109.159, API https://api.sinegualfamily.com\n" .
     "- STAGING: VPS 191.218.162.182, API https://api.nexastaging.com\n" .
-    "Each VPS runs four Flask bots as systemd services: 'binance' (Binance), 'mexc' (MEXC), 'capital' (Capital.com), 'ig' (IG).\n" .
+    "Each VPS runs Flask bots as systemd services: 'binance' (Binance), 'mexc' (MEXC), 'capital' (Capital.com), 'ig' (IG), and on staging only 'bybit' (Bybit).\n" .
     "Use the tools to get real data — never invent numbers or log contents. Call get_stats for counts, " .
     "tail_service_log to read/tail a bot's log, get_recent_registrations for recent sign-ups. " .
     "If a question spans both environments (e.g. 'users on prod vs staging'), call the tool once per environment. " .
