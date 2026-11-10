@@ -19,9 +19,11 @@
  * does (env override, else the receivers' code defaults; Capital from bot_config), so
  * the page shows the same value the API itself signs with.
  *
- * Feeds: Binance has two (migration 095 + binance-flask "Tester type + test feed"):
- * main = /binance_webhook (everyone but testers), test = /binance_test_webhook
- * (tester-owned accounts only). Every other receiver is main only.
+ * Feeds: Binance and Bybit have three each (FEED_BY_USER_TYPE in includes/user_types.php):
+ * main = /binance_webhook (everyone on no other feed), test = /binance_test_webhook
+ * (tester-owned accounts only), quantlab = /binance_quantlab_webhook (quantlab_tester-
+ * owned only, posted to by QuantLab's alerts) — and the /bybit_* twins on staging.
+ * Every other receiver is main only.
  */
 
 header('Content-Type: application/json');
@@ -94,17 +96,21 @@ function wh_probe(int $port): array {
 }
 
 /**
- * Enabled, connected accounts on one broker, split real-money / demo. `$owner` narrows
- * by account type for the Binance feeds: 'tester', 'not_tester', or null (everyone).
+ * Enabled, connected accounts on one broker, split real-money / demo. `$feed` narrows
+ * by the owner's account type for brokers with feeds (Binance, Bybit): 'main' = owners
+ * whose type maps to no other feed, 'test' / 'quantlab' = owners whose type maps to it
+ * (FEED_BY_USER_TYPE). null = everyone (a broker without feeds).
  */
-function wh_receivers($conn, string $table, ?string $owner): ?array {
+function wh_receivers($conn, string $table, ?string $feed): ?array {
     $where = 'COALESCE(a.enabled, 1) = 1 AND a.deleted_at IS NULL';
-    if ($owner !== null) {
-        if (user_credentials_has_type($conn)) {
-            $in = "a.uni_id IN (SELECT uc.uni_id FROM user_credentials uc WHERE uc.`type` = 'tester')";
-            $where .= $owner === 'tester' ? " AND $in" : " AND NOT ($in)";
-        } elseif ($owner === 'tester') {
-            return ['live' => 0, 'demo' => 0]; // no type column = nobody is a tester
+    if ($feed !== null) {
+        $feedTypes = $feed === MAIN_FEED ? array_keys(FEED_BY_USER_TYPE) : feed_user_types($feed);
+        if (user_credentials_has_type($conn) && $feedTypes) {
+            $list = "'" . implode("','", $feedTypes) . "'";
+            $in = "a.uni_id IN (SELECT uc.uni_id FROM user_credentials uc WHERE uc.`type` IN ($list))";
+            $where .= $feed === MAIN_FEED ? " AND NOT ($in)" : " AND $in";
+        } elseif ($feed !== MAIN_FEED) {
+            return ['live' => 0, 'demo' => 0]; // no type column = nobody is on this feed
         }
     }
     $res = @mysqli_query(
@@ -146,24 +152,28 @@ foreach ([5000, 5001, 5002, 5003, 5004] as $port) {
 
 $defs = [
     ['capital',      'capital', 'Capital.com', 'main', '/webhook',              5000, wh_capital_secret($conn),                                         'accounts',         null],
-    ['binance',      'binance', 'Binance',     'main', '/binance_webhook',      5001, (string) env('BINANCE_WEBHOOK_SECRET', 'binance_bot'),           'binance_accounts', 'not_tester'],
+    ['binance',      'binance', 'Binance',     'main', '/binance_webhook',      5001, (string) env('BINANCE_WEBHOOK_SECRET', 'binance_bot'),           'binance_accounts', 'main'],
     ['mexc',         'mexc',    'MEXC',        'main', '/mexc_webhook',         5003, (string) env('MEXC_WEBHOOK_SECRET', 'mexc_bot'),                 'mexc_accounts',    null],
     ['ig',           'ig',      'IG',          'main', '/ig_webhook',           5002, (string) env('IG_WEBHOOK_SECRET', 'ig_bot'),                     'ig_accounts',      null],
-    ['binance_test', 'binance', 'Binance',     'test', '/binance_test_webhook', 5001, (string) env('BINANCE_TEST_WEBHOOK_SECRET', 'binance_test_bot'), 'binance_accounts', 'tester'],
+    ['binance_test', 'binance', 'Binance',     'test', '/binance_test_webhook', 5001, (string) env('BINANCE_TEST_WEBHOOK_SECRET', 'binance_test_bot'), 'binance_accounts', 'test'],
+    ['binance_quantlab', 'binance', 'Binance', 'quantlab', '/binance_quantlab_webhook', 5001, (string) env('BINANCE_QUANTLAB_WEBHOOK_SECRET', 'binance_quantlab_bot'), 'binance_accounts', 'quantlab'],
 ];
 // Bybit (flask/bybit, :5004) only where it is deployed — sc_expectation() says ubuntu-staging.
 // Its secrets are the bot's in-code defaults (hooks.py), overridable like the others.
 if (sc_expectation('bybit')['expected']) {
-    $defs[] = ['bybit',      'bybit',   'Bybit',       'main', '/bybit_webhook',        5004, (string) env('BYBIT_WEBHOOK_SECRET', 'bybit_bot'),           'bybit_accounts',   'not_tester'];
-    $defs[] = ['bybit_test', 'bybit',   'Bybit',       'test', '/bybit_test_webhook',   5004, (string) env('BYBIT_TEST_WEBHOOK_SECRET', 'bybit_test_bot'), 'bybit_accounts',   'tester'];
+    $defs[] = ['bybit',      'bybit',   'Bybit',       'main', '/bybit_webhook',        5004, (string) env('BYBIT_WEBHOOK_SECRET', 'bybit_bot'),           'bybit_accounts',   'main'];
+    $defs[] = ['bybit_test', 'bybit',   'Bybit',       'test', '/bybit_test_webhook',   5004, (string) env('BYBIT_TEST_WEBHOOK_SECRET', 'bybit_test_bot'), 'bybit_accounts',   'test'];
+    $defs[] = ['bybit_quantlab', 'bybit', 'Bybit',     'quantlab', '/bybit_quantlab_webhook', 5004, (string) env('BYBIT_QUANTLAB_WEBHOOK_SECRET', 'bybit_quantlab_bot'), 'bybit_accounts', 'quantlab'];
 }
 
 $webhooks = [];
 foreach ($defs as [$key, $broker, $label, $feed, $path, $port, $secret, $table, $owner]) {
     [$reachable, $health] = $probes[$port];
+    // A non-main feed's engine reports it as /health "<feed>_feed": {enabled, path}.
+    // Kept under the old key name — the dashboard reads test_feed_enabled for any feed.
     $testEnabled = null;
-    if ($feed === 'test' && is_array($health) && isset($health['test_feed']['enabled'])) {
-        $testEnabled = (bool) $health['test_feed']['enabled'];
+    if ($feed !== MAIN_FEED && is_array($health) && isset($health[$feed . '_feed']['enabled'])) {
+        $testEnabled = (bool) $health[$feed . '_feed']['enabled'];
     }
     $webhooks[] = [
         'key'       => $key,

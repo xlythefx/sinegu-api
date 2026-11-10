@@ -89,9 +89,10 @@ foreach ($updatableFields as $field => $type) {
 }
 
     // Account type (migration 095). Outside the generic loop: it is checked against
-    // the one list in includes/user_types.php, and a change to or from tester moves
-    // the user's Binance accounts between signal feeds — refused while they hold a
-    // position, because the other feed's exit would close this feed's entry.
+    // the one list in includes/user_types.php, and a change that crosses feeds
+    // (user_type_feed differs: main / test / quantlab) moves the user's Binance and
+    // Bybit accounts to another signal feed — refused while they hold a position on
+    // either, because the other feed's exit would close this feed's entry.
     $typeUnchanged = false;
     $feedMoved = false;
     if (array_key_exists('type', $data)) {
@@ -109,15 +110,22 @@ foreach ($updatableFields as $field => $type) {
         if ($newType === $currentType) {
             $typeUnchanged = true;
         } else {
-            $feedMoved = $newType === TESTER_USER_TYPE || $currentType === TESTER_USER_TYPE;
+            $feedMoved = user_type_feed($newType) !== user_type_feed($currentType);
+            $openOn = [];
             if ($feedMoved && user_has_open_binance_positions($conn, $uni_id)) {
+                $openOn[] = 'Binance';
+            }
+            if ($feedMoved && user_has_open_bybit_positions($conn, $uni_id)) {
+                $openOn[] = 'Bybit';
+            }
+            if ($openOn) {
                 ob_clean();
                 http_response_code(409);
                 echo json_encode([
                     'success' => false,
                     'error_code' => 'OPEN_POSITIONS',
-                    'message' => 'This user holds an open Binance position — close it first. '
-                        . 'Switching to or from tester moves their accounts to the other signal feed, '
+                    'message' => 'This user holds an open ' . implode(' and ', $openOn) . ' position — close it first. '
+                        . 'This type change moves their accounts to another signal feed, '
                         . 'whose exit would close this position.',
                 ]);
                 ob_end_flush();
@@ -188,9 +196,12 @@ foreach ($updatableFields as $field => $type) {
     $affectedRows = mysqli_stmt_affected_rows($stmt);
     mysqli_stmt_close($stmt);
 
-    // The engine caches accounts (with their feed) for 90 s; drop the cache so the
+    // The engines cache accounts (with their feed) for 90 s; drop the caches so the
     // new feed applies to the next signal. Best effort — a miss only means 90 s.
+    // `engine_refreshed` stays Binance's answer (the dashboard reads it); Bybit's is
+    // reported beside it and is false on a box that does not run Bybit.
     $engineRefreshed = $feedMoved ? refresh_binance_engine_accounts() : null;
+    $bybitRefreshed = $feedMoved ? refresh_bybit_engine_accounts() : null;
 
     ob_clean();
     echo json_encode([
@@ -198,6 +209,7 @@ foreach ($updatableFields as $field => $type) {
         'message' => 'User updated successfully',
         'affected_rows' => $affectedRows,
         'engine_refreshed' => $engineRefreshed,
+        'bybit_engine_refreshed' => $bybitRefreshed,
     ]);
     ob_end_flush();
     exit;

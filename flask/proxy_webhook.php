@@ -54,7 +54,7 @@ if (isset($payload['flask_path'])) {
 // trade 400'd with "Invalid flask_path" and never reached Flask — the dashboard
 // reported "All orders failed. Check Flask logs." while the IG log stayed empty,
 // because the request died in this file. Adding a receiver means adding it here.
-$allowedPaths = ['/webhook', '/binance_webhook', '/binance_test_webhook', '/ig_webhook', '/mexc_webhook', '/bybit_webhook', '/bybit_test_webhook'];
+$allowedPaths = ['/webhook', '/binance_webhook', '/binance_test_webhook', '/binance_quantlab_webhook', '/ig_webhook', '/mexc_webhook', '/bybit_webhook', '/bybit_test_webhook', '/bybit_quantlab_webhook'];
 if (!in_array($flaskPath, $allowedPaths, true)) {
     http_response_code(400);
     echo json_encode([
@@ -72,14 +72,22 @@ $flaskUrl = preg_replace('/\?.*$/', '', $flaskUrl);
 // Remove supported webhook path if already present
 // Keep in step with $allowedPaths — a path missing here survives into $flaskUrl
 // and gets doubled up (…/ig_webhook/ig_webhook) when the path is appended below.
-$flaskUrl = preg_replace('/\/(?:webhook|binance_webhook|binance_test_webhook|ig_webhook|mexc_webhook|bybit_webhook|bybit_test_webhook)$/', '', $flaskUrl);
+$flaskUrl = preg_replace('/\/(?:webhook|binance_webhook|binance_test_webhook|binance_quantlab_webhook|ig_webhook|mexc_webhook|bybit_webhook|bybit_test_webhook|bybit_quantlab_webhook)$/', '', $flaskUrl);
 
-// The Binance test feed (tester accounts only) has its own secret. It is filled
-// in here rather than shipped in the dashboard bundle; whatever the client sent
-// is ignored. Must match binance-flask's BINANCE_TEST_WEBHOOK_SECRET.
-if ($flaskPath === '/binance_test_webhook') {
+// The test feeds (tester accounts only) and quantlab feeds (quantlab_tester accounts
+// only) each have their own secret. They are filled in here rather than shipped in the
+// dashboard bundle; whatever the client sent is ignored. Each must match the engine's
+// env var of the same name (flask/binance, flask/bybit src/hooks.py).
+$feedSecrets = [
+    '/binance_test_webhook'     => ['BINANCE_TEST_WEBHOOK_SECRET', 'binance_test_bot'],
+    '/binance_quantlab_webhook' => ['BINANCE_QUANTLAB_WEBHOOK_SECRET', 'binance_quantlab_bot'],
+    '/bybit_test_webhook'       => ['BYBIT_TEST_WEBHOOK_SECRET', 'bybit_test_bot'],
+    '/bybit_quantlab_webhook'   => ['BYBIT_QUANTLAB_WEBHOOK_SECRET', 'bybit_quantlab_bot'],
+];
+if (isset($feedSecrets[$flaskPath])) {
     require_once __DIR__ . '/../env.php';
-    $payload['secret'] = (string) env('BINANCE_TEST_WEBHOOK_SECRET', 'binance_test_bot');
+    [$envKey, $default] = $feedSecrets[$flaskPath];
+    $payload['secret'] = (string) env($envKey, $default);
 }
 
 // Validate required fields

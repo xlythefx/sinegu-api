@@ -113,7 +113,7 @@ if (!function_exists('requireAdminActionPassword')) {
             'success'       => false,
             'error'         => $credentials === []
                 ? 'Sign in with an admin account to do this.'
-                : 'This needs an admin account (Administrator, Developer, Collaborator or Tester).',
+                : 'This needs an admin account (Administrator, Developer, Collaborator, Tester or QuantLab Tester).',
             'auth_required' => true,
         ]);
         exit;

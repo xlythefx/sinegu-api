@@ -109,10 +109,10 @@ if ($feedRes) {
 }
 
 $feed = isset($_GET['feed']) ? strtolower(trim((string) $_GET['feed'])) : '';
-if (in_array($feed, ['main', 'test'], true)) {
+if (in_array($feed, ['main', 'test', 'quantlab'], true)) {
     if ($hasFeed) {
         $where[] = "feed = '" . $feed . "'";
-    } elseif ($feed === 'test') {
+    } elseif ($feed !== 'main') {
         $where[] = '1 = 0';
     }
 }

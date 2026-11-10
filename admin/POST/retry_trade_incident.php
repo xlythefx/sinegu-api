@@ -130,12 +130,16 @@ switch ($broker) {
             $isMexc ? 'http://127.0.0.1:5003/mexc_webhook' : 'http://127.0.0.1:5001/binance_webhook');
         $secret = (string) env($isMexc ? 'MEXC_WEBHOOK_SECRET' : 'BINANCE_WEBHOOK_SECRET',
             $isMexc ? 'mexc_bot' : 'binance_bot');
-        // A tester's Binance accounts only answer the test feed: the engine drops
-        // them from every /binance_webhook run, so a close sent there would match no
-        // account. Route it to the test webhook with the test secret instead.
-        if (!$isMexc && user_type_of($conn, $uniId) === TESTER_USER_TYPE) {
+        // A tester's (or quantlab_tester's) Binance accounts only answer their own feed:
+        // the engine drops them from every /binance_webhook run, so a close sent there
+        // would match no account. Route it to that feed's webhook and secret instead.
+        $ownerFeed = $isMexc ? MAIN_FEED : user_type_feed(user_type_of($conn, $uniId));
+        if ($ownerFeed === 'test') {
             $url = (string) env('TRADE_RETRY_BINANCE_TEST_URL', 'http://127.0.0.1:5001/binance_test_webhook');
             $secret = (string) env('BINANCE_TEST_WEBHOOK_SECRET', 'binance_test_bot');
+        } elseif ($ownerFeed === 'quantlab') {
+            $url = (string) env('TRADE_RETRY_BINANCE_QUANTLAB_URL', 'http://127.0.0.1:5001/binance_quantlab_webhook');
+            $secret = (string) env('BINANCE_QUANTLAB_WEBHOOK_SECRET', 'binance_quantlab_bot');
         }
         // Hedge-mode exits name a side. An incident with no side gets both: closing a
         // side that is already flat is a harmless "already flat" on these bots.
@@ -144,13 +148,18 @@ switch ($broker) {
         break;
 
     case 'bybit':
-        // flask/bybit (:5004, staging 182 only for now). Like Binance it has a test feed
-        // that is the ONLY one tester-owned accounts answer, so route those there.
+        // flask/bybit (:5004, staging 182 only for now). Like Binance it has test and
+        // quantlab feeds that are the ONLY ones their owners' accounts answer, so route
+        // those there.
         $url = (string) env('TRADE_RETRY_BYBIT_URL', 'http://127.0.0.1:5004/bybit_webhook');
         $secret = (string) env('BYBIT_WEBHOOK_SECRET', 'bybit_bot');
-        if (user_type_of($conn, $uniId) === TESTER_USER_TYPE) {
+        $ownerFeed = user_type_feed(user_type_of($conn, $uniId));
+        if ($ownerFeed === 'test') {
             $url = (string) env('TRADE_RETRY_BYBIT_TEST_URL', 'http://127.0.0.1:5004/bybit_test_webhook');
             $secret = (string) env('BYBIT_TEST_WEBHOOK_SECRET', 'bybit_test_bot');
+        } elseif ($ownerFeed === 'quantlab') {
+            $url = (string) env('TRADE_RETRY_BYBIT_QUANTLAB_URL', 'http://127.0.0.1:5004/bybit_quantlab_webhook');
+            $secret = (string) env('BYBIT_QUANTLAB_WEBHOOK_SECRET', 'bybit_quantlab_bot');
         }
         $actions = $side === 'LONG' ? ['EXIT_LONG'] : ($side === 'SHORT' ? ['EXIT_SHORT'] : ['EXIT_LONG', 'EXIT_SHORT']);
         $tickers = [$symbol];

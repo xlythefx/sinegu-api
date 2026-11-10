@@ -119,10 +119,11 @@ if (!in_array($category, ['signal', 'rejected', 'manual', 'retry'], true)) {
     $category = 'signal';
 }
 
-// Which binance-flask webhook produced the signal. Anything unknown is main, so a
-// typo can never hide a real signal behind the Signal Log's test-feed filter.
+// Which crypto webhook produced the signal: main, test or quantlab (the engines'
+// hooks.FEEDS; trade_logs.feed is VARCHAR(8)). Anything unknown is main, so a typo can
+// never hide a real signal behind the Signal Log's feed filter.
 $feed = isset($input['feed']) ? strtolower(trim((string) $input['feed'])) : 'main';
-if (!in_array($feed, ['main', 'test'], true)) {
+if (!in_array($feed, ['main', 'test', 'quantlab'], true)) {
     $feed = 'main';
 }
 
