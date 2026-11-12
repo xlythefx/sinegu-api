@@ -40,9 +40,19 @@ if (!$conn) {
     exit;
 }
 
-$sql = "SELECT api_key, secret_key, name, uni_id, balance, initial_deposit, currency_type, demo, enabled 
-        FROM binance_accounts 
-        WHERE enabled = 1 AND (deleted_at IS NULL) 
+// API-key health (migration 104): the engine skips a `key_status = 'blocked'` account
+// in the fan-out and its balance poller re-checks it, so the list must carry both.
+// Selected only once the columns exist — this is the trading path, and a SELECT of a
+// missing column would throw and empty every fan-out until the migration ran.
+$keyCols = '';
+$kc = mysqli_query($conn, "SHOW COLUMNS FROM `binance_accounts` LIKE 'key_blocked_scope'");
+if ($kc && mysqli_num_rows($kc) > 0) {
+    $keyCols = ', key_status, key_blocked_scope, key_blocked_at';
+}
+
+$sql = "SELECT api_key, secret_key, name, uni_id, balance, initial_deposit, currency_type, demo, enabled{$keyCols}
+        FROM binance_accounts
+        WHERE enabled = 1 AND (deleted_at IS NULL)
         ORDER BY created_at ASC";
 
 $result = mysqli_query($conn, $sql);
